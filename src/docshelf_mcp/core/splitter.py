@@ -1,0 +1,160 @@
+"""Markdown cleanup + H2 splitter.
+
+The PDF→Markdown step (e.g. ``pymupdf4llm``) routinely produces a few
+artefacts that make the result hard for an LLM (or a human) to read:
+
+* Stray ``# ...`` "headings" that are really CLI dumps or table rows.
+* 5–20 consecutive blank lines from page breaks.
+
+:func:`clean_markdown` smooths those out. :func:`split_by_h2` then breaks
+a long document into one section per ``## `` heading, returning
+``[(title, body), ...]`` so the caller can write each section to its own
+file. :func:`write_split_files` is the on-disk variant that handles
+collisions, numbered prefixes, and an idempotent directory rewrite.
+"""
+
+from __future__ import annotations
+
+import re
+import shutil
+from collections.abc import Iterable
+from pathlib import Path
+
+from docshelf_mcp.core.slugify import slugify
+
+__all__ = [
+    "clean_markdown",
+    "split_by_h2",
+    "write_split_files",
+    "should_split",
+]
+
+# Heuristic for "this `# ...` line is not really a chapter heading":
+# CLI output and routing tables that the PDF extractor mistook for H1.
+# Real H1s start with a letter/word; CLI noise starts with a digit + uppercase
+# flag (e.g. "# 0 X chain=...", "# 12 ADC ...", "# 0 R ether1 ...").
+_FAKE_H1 = re.compile(
+    r"^# (?:"
+    r"\d+\s+[A-Z]+\b"      # # 12 ADC ...
+    r"|\d+\s+[A-Z]\b"      # # 0 X ...
+    r")",
+)
+
+_H2_RE = re.compile(r"^## (.+?)\s*$")
+
+#: Files smaller than this are not auto-split. 50 KB is a good empirical
+#: cutoff — small enough that a Claude project tolerates the whole file,
+#: large enough that we don't fragment a normal user guide.
+DEFAULT_SPLIT_THRESHOLD_BYTES = 50 * 1024
+
+
+def _clean_lines(lines: Iterable[str]) -> list[str]:
+    """Run the line-level cleanup heuristics. Returns the cleaned list."""
+    out: list[str] = []
+    blank_run = 0
+    for raw_line in lines:
+        line = raw_line.rstrip("\n")
+
+        # Demote fake H1s to indented code (preserves content, kills the false header)
+        if _FAKE_H1.match(line):
+            line = "    " + line[2:]
+
+        # Collapse 3+ blank lines into one
+        if not line.strip():
+            blank_run += 1
+            if blank_run >= 2:
+                continue
+        else:
+            blank_run = 0
+
+        out.append(line)
+    return out
+
+
+def clean_markdown(text: str) -> str:
+    """Smooth out common PDF-extraction artefacts in a Markdown string.
+
+    Returns the cleaned text (always ends with a single trailing newline).
+    """
+    return "\n".join(_clean_lines(text.splitlines())) + "\n"
+
+
+def should_split(text: str, threshold_bytes: int = DEFAULT_SPLIT_THRESHOLD_BYTES) -> bool:
+    """Heuristic: does this document warrant a chapter-by-chapter split?
+
+    True if the UTF-8 byte length exceeds ``threshold_bytes`` AND the document
+    has at least two H2 headings to split on. Returning False here means the
+    caller should keep the document as a single file.
+    """
+    if len(text.encode("utf-8")) <= threshold_bytes:
+        return False
+    h2_count = sum(1 for line in text.splitlines() if _H2_RE.match(line))
+    return h2_count >= 2
+
+
+def split_by_h2(text: str) -> list[tuple[str, str]]:
+    """Split a Markdown string on H2 boundaries.
+
+    Returns a list of ``(title, body)`` pairs. Content before the first H2
+    is returned with title ``"preamble"`` and is omitted if it is entirely
+    whitespace.
+
+    Each body starts at its ``## `` heading line — so writing the body verbatim
+    to a file preserves the heading.
+    """
+    sections: list[tuple[str, list[str]]] = [("preamble", [])]
+    for line in text.splitlines():
+        m = _H2_RE.match(line)
+        if m:
+            title = m.group(1).strip()
+            sections.append((title, [line]))
+        else:
+            sections[-1][1].append(line)
+
+    if not "\n".join(sections[0][1]).strip():
+        sections.pop(0)
+
+    return [(title, "\n".join(body).rstrip() + "\n") for title, body in sections]
+
+
+def write_split_files(
+    sections: list[tuple[str, str]],
+    target_dir: Path,
+    *,
+    clean_existing: bool = True,
+) -> list[Path]:
+    """Write each ``(title, body)`` section to ``target_dir/NNN-slug.md``.
+
+    Args:
+        sections: Output of :func:`split_by_h2`.
+        target_dir: Output directory. Created if missing.
+        clean_existing: If True (default), nukes ``target_dir`` first so the
+            split is fully idempotent on re-run.
+
+    Returns:
+        List of written :class:`Path` objects, in section order.
+    """
+    if clean_existing and target_dir.exists():
+        shutil.rmtree(target_dir)
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    written: list[Path] = []
+    used_slugs: set[str] = set()
+    for idx, (title, body) in enumerate(sections, start=1):
+        slug = slugify(title)
+        if slug in used_slugs:
+            slug = f"{slug}-{idx:03d}"
+        used_slugs.add(slug)
+
+        filename = f"{idx:03d}-{slug}.md"
+        path = target_dir / filename
+
+        # If the body doesn't already start with a heading and the slice has a
+        # real title (not "preamble"), prepend one so the standalone file is
+        # self-explanatory.
+        if title != "preamble" and not body.lstrip().startswith("#"):
+            body = f"# {title}\n\n{body}"
+
+        path.write_text(body, encoding="utf-8")
+        written.append(path)
+    return written
