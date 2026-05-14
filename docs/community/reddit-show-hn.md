@@ -60,8 +60,10 @@ if you don't want to wire it up to an MCP client.
 
 **Links:**
 
+- Docs / landing: https://ignatenkofi.github.io/docshelf-mcp/
 - Repo: https://github.com/ignatenkofi/docshelf-mcp
 - PyPI: https://pypi.org/project/docshelf-mcp/ (`pip install docshelf-mcp`)
+- Glama listing: https://glama.ai/mcp/servers/ignatenkofi/docshelf-mcp
 - Project prompt: https://github.com/ignatenkofi/docshelf-mcp/blob/main/docs/PROJECT_PROMPT.md
 
 Happy to answer questions or take feature requests. The thing I'm most curious
@@ -130,6 +132,7 @@ datasheets) are the obvious failure case — for those it falls back to
 keeping the file whole and using grep-based search.
 
 Repo: https://github.com/ignatenkofi/docshelf-mcp
+Docs: https://ignatenkofi.github.io/docshelf-mcp/
 Project prompt: https://github.com/ignatenkofi/docshelf-mcp/blob/main/docs/PROJECT_PROMPT.md
 ```
 
