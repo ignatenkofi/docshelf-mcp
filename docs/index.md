@@ -92,14 +92,29 @@ Or via MCP tools from inside a Claude chat:
 
 ---
 
-## Try it on a real shelf
+## What an INDEX.md looks like
 
-There's a live docshelf at <https://github.com/ignatenkofi/gh.project.homelab> with:
+After running docshelf on a folder of manuals, the auto-generated `INDEX.md`
+is the only file you hand the AI:
 
-- **8 compressed PDFs** of hardware datasheets
-- **MIKROTIK RouterOS** manual split into 29 chapters (~4,200 sections, ~150 KB each)
-- **INTEL X550** datasheet split into 241 sections
-- One `INDEX.md` at the root — that's the only file an AI needs.
+```markdown
+# My Shelf — Index
+
+## 🌐 Network gear
+- [Router admin manual](https://raw.githubusercontent.com/you/shelf/main/docs/network/router-admin.md)
+- [Switch configuration guide](https://raw.githubusercontent.com/you/shelf/main/docs/network/switch.md)
+
+## 🖥 Hardware datasheets (split by chapter)
+### NIC datasheet — 240+ sections
+- [Chapter 1 — Overview](https://raw.githubusercontent.com/you/shelf/main/docs/hardware/nic/01-overview.md)
+- [Chapter 8 — Device registers](https://raw.githubusercontent.com/you/shelf/main/docs/hardware/nic/08-device-registers.md)
+- [Chapter 9 — PCIe register map](https://raw.githubusercontent.com/you/shelf/main/docs/hardware/nic/09-pcie-register-map.md)
+…
+```
+
+The AI sees ~5 KB of structure and 200 raw URLs. When asked
+"how do I configure PCIe BARs?", it fetches **only** `09-pcie-register-map.md`
+(~80 KB) and answers from that — not the whole 4 MB original PDF.
 
 ---
 
