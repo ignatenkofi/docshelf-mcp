@@ -1,0 +1,25 @@
+# Smithery configuration for docshelf-mcp
+# Docs: https://smithery.ai/docs
+#
+# docshelf-mcp is a stdio MCP server. Smithery installs it from PyPI and
+# launches it locally with the user's chosen shelf directory as DOCSHELF_ROOT.
+
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    required: []
+    properties:
+      docshelfRoot:
+        type: string
+        title: "Docshelf root directory"
+        description: "Absolute path to your docshelf collection (directory containing DOCS/ and INDEX.md). Defaults to the current working directory."
+        default: "."
+  commandFunction: |-
+    (config) => ({
+      command: "docshelf-mcp",
+      args: [],
+      env: {
+        DOCSHELF_ROOT: config.docshelfRoot || "."
+      }
+    })
