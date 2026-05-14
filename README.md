@@ -7,6 +7,9 @@
 [![MCP](https://img.shields.io/badge/MCP-compatible-purple.svg)](https://modelcontextprotocol.io/)
 [![CI](https://github.com/ignatenkofi/docshelf-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/ignatenkofi/docshelf-mcp/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/docshelf-mcp.svg)](https://pypi.org/project/docshelf-mcp/)
+[![Glama](https://glama.ai/mcp/servers/ignatenkofi/docshelf-mcp/badges/score.svg)](https://glama.ai/mcp/servers/ignatenkofi/docshelf-mcp)
+
+📖 **Docs & landing page:** <https://ignatenkofi.github.io/docshelf-mcp/>
 
 ```text
    ___  __  ____  ____  _  _  ____  __    ____
