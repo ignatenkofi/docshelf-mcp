@@ -20,11 +20,12 @@ Alternate titles:
 ### Body
 
 ```markdown
-Quick honest note up front: I run an engineering org and haven't written
-production code in years — I direct, unblock, and review. This tool got
-built pair-programming with Claude Sonnet over a few sessions. Mentioning
-it because (a) hiding it would feel weird, and (b) the tool itself ended
-up solving the exact problem that started the project: Claude kept choking
+Quick honest note up front: I manage a development team (head of an
+engineering centre inside a larger company) and haven't written production
+code in years — I direct, unblock, and review. This tool got built
+pair-programming with Claude Sonnet over a few sessions. Mentioning it
+because (a) hiding it would feel weird, and (b) the tool itself ended up
+solving the exact problem that started the project: Claude kept choking
 on 4 MB PDFs in my projects.
 
 **The problem.**
