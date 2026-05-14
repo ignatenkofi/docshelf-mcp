@@ -92,10 +92,18 @@ Or via MCP tools from inside a Claude chat:
 
 ---
 
-## What an INDEX.md looks like
+## Try it on a real shelf
 
-After running docshelf on a folder of manuals, the auto-generated `INDEX.md`
-is the only file you hand the AI:
+There's a live, public docshelf at
+<https://github.com/ignatenkofi/gh.project.homelab> — a homelab manuals
+collection covering routers, switches, NICs, PSUs, RAM, NAS, racks, and more.
+
+Open the [`INDEX.md`](https://github.com/ignatenkofi/gh.project.homelab/blob/main/INDEX.md)
+— that's the only file a chat project needs. From there an AI agent can
+follow links into chapter SUBINDEXes for the big manuals (RouterOS, X550)
+or fetch the small per-device files directly.
+
+A simplified `INDEX.md` looks like this:
 
 ```markdown
 # My Shelf — Index
@@ -105,16 +113,17 @@ is the only file you hand the AI:
 - [Switch configuration guide](https://raw.githubusercontent.com/you/shelf/main/docs/network/switch.md)
 
 ## 🖥 Hardware datasheets (split by chapter)
-### NIC datasheet — 240+ sections
+### NIC datasheet
 - [Chapter 1 — Overview](https://raw.githubusercontent.com/you/shelf/main/docs/hardware/nic/01-overview.md)
 - [Chapter 8 — Device registers](https://raw.githubusercontent.com/you/shelf/main/docs/hardware/nic/08-device-registers.md)
 - [Chapter 9 — PCIe register map](https://raw.githubusercontent.com/you/shelf/main/docs/hardware/nic/09-pcie-register-map.md)
 …
 ```
 
-The AI sees ~5 KB of structure and 200 raw URLs. When asked
-"how do I configure PCIe BARs?", it fetches **only** `09-pcie-register-map.md`
-(~80 KB) and answers from that — not the whole 4 MB original PDF.
+The AI sees a few KB of structure and the raw URLs. When asked
+"how do I configure PCIe BARs?", it fetches **only**
+`09-pcie-register-map.md` and answers from that — not the whole 4 MB
+original PDF.
 
 ---
 
