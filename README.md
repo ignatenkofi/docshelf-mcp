@@ -6,6 +6,7 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![MCP](https://img.shields.io/badge/MCP-compatible-purple.svg)](https://modelcontextprotocol.io/)
 [![CI](https://github.com/ignatenkofi/docshelf-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/ignatenkofi/docshelf-mcp/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/docshelf-mcp.svg)](https://pypi.org/project/docshelf-mcp/)
 
 ```text
    ___  __  ____  ____  _  _  ____  __    ____
@@ -40,7 +41,9 @@ Result: a 5 KB index pointing at a 50 MB collection. The model reads exactly the
 
 ---
 
-## Install
+## 📦 Install
+
+From PyPI (once the first tagged release is published):
 
 ```bash
 # uv (recommended)
@@ -48,10 +51,36 @@ uv pip install docshelf-mcp
 
 # or plain pip
 pip install docshelf-mcp
+```
 
-# optional high-quality PDF engine (pulls ~2 GB of PyTorch — only if you need it)
+Or straight from `main` (always-latest, no PyPI required):
+
+```bash
+pip install "git+https://github.com/ignatenkofi/docshelf-mcp"
+```
+
+Optional high-quality PDF engine (pulls ~2 GB of PyTorch — only if you need it):
+
+```bash
 pip install "docshelf-mcp[high-quality]"
 ```
+
+---
+
+## 📋 Project Prompt
+
+Drop this into the **Custom Instructions** of any Claude project that consumes
+a docshelf-style `INDEX.md`:
+
+> This project uses the docshelf pattern. `INDEX.md` is the entry point.
+> When answering: read INDEX → fetch ONLY the needed section file via its
+> GitHub raw URL (use WebFetch / fetch / curl). Don't load full source files
+> into context. For large manuals split into chapters, follow INDEX → chapter
+> SUBINDEX → section file.
+
+Medium (~150 words) and full (~400 words) versions, plus how-to snippets for
+Claude Code, Claude Desktop, and the Anthropic API, live in
+[`docs/PROJECT_PROMPT.md`](docs/PROJECT_PROMPT.md).
 
 ---
 

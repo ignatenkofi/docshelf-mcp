@@ -5,6 +5,39 @@ All notable changes to docshelf-mcp will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] — 2026-05-14
+
+Documentation, distribution, and community-onboarding pass. No runtime
+changes — the library and MCP tools are byte-identical to v0.1.0.
+
+### Added
+- `docs/PROJECT_PROMPT.md` — ready-to-use AI prompts (short / medium / full)
+  for projects that consume a docshelf via `INDEX.md`. Includes how-to
+  snippets for Claude Project, Claude Code, Claude Desktop, and the
+  Anthropic API.
+- `.github/workflows/release.yml` — tag-triggered release workflow:
+  builds sdist + wheel, publishes to PyPI via **trusted publishing**
+  (OIDC, no API tokens), and creates a GitHub Release with the
+  matching CHANGELOG entry attached.
+- `docs/community/` — submission materials for OSS distribution:
+  - `awesome-mcp-pr.md` — one-liner for the `awesome-mcp-servers` registry.
+  - `smithery-listing.md` — Smithery (smithery.ai) submission draft.
+  - `reddit-show-hn.md` — Reddit (`/r/ClaudeAI`, `/r/mcp`) and Show HN
+    announcement drafts.
+- README: new **📋 Project Prompt** section linking to `docs/PROJECT_PROMPT.md`.
+- README: PyPI install badge placeholder.
+
+### Changed
+- `pyproject.toml` — version bumped to `0.2.0`.
+- README install section expanded with the PyPI command + the git-source
+  fallback for users on `main`.
+
+### Notes
+- First PyPI release will be cut by pushing the `v0.2.0` tag. The trusted
+  publisher needs to be configured once on the PyPI side
+  (`https://pypi.org/manage/account/publishing/` → add this repo, env name
+  `pypi`, workflow file `release.yml`).
+
 ## [0.1.0] — 2026-05-13
 
 Initial public release.
