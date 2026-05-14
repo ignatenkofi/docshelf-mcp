@@ -20,6 +20,13 @@ Alternate titles:
 ### Body
 
 ```markdown
+Quick honest note up front: I run an engineering org and haven't written
+production code in years — I direct, unblock, and review. This tool got
+built pair-programming with Claude Sonnet over a few sessions. Mentioning
+it because (a) hiding it would feel weird, and (b) the tool itself ended
+up solving the exact problem that started the project: Claude kept choking
+on 4 MB PDFs in my projects.
+
 **The problem.**
 
 I have ~30 hardware manuals for my homelab, plus a stack of recipes, plus
@@ -100,7 +107,9 @@ https://github.com/ignatenkofi/docshelf-mcp
 
 ```text
 Hey HN — small Python/MCP tool I'd been running as a 350-line script for
-homelab manuals, generalised and released.
+homelab manuals, generalised and released. Built pair-programming with
+Claude Sonnet — flagging this because the tool itself was born from
+the context-window problem Claude kept hitting on my projects.
 
 The idea: a Claude project can attach one file. PDFs are too big. Embeddings
 are too much infra for the problem. So instead, you convert PDFs to Markdown,
