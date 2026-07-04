@@ -47,6 +47,20 @@ Add a PDF or Markdown file to the shelf.
 
 The response includes `document_path`, `section_paths`, and `next_steps` (the suggested git command).
 
+### `docshelf_remove_document`
+
+Remove a document — its file, its split-section directory, and its `.meta.json` entry. `INDEX.md` is regenerated automatically. `document` accepts the filename, the slug, or the human title used at add time.
+
+```jsonc
+{
+  "category": "routers",
+  "document": "Mikrotik RouterOS — full manual",
+  "dry_run": false   // true = report what would be removed, delete nothing
+}
+```
+
+The response lists `removed_paths` relative to the shelf root. As with `add_document`, the git commit / push step stays with you.
+
 ### `docshelf_rebuild_index`
 
 Regenerate `INDEX.md` from the on-disk state. Use after manual edits to `docs/` or `.docshelf.json`.

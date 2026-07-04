@@ -48,7 +48,7 @@ from docshelf_mcp.core.splitter import (
     write_split_files,
 )
 
-__all__ = ["Shelf", "ShelfConfig", "AddResult"]
+__all__ = ["Shelf", "ShelfConfig", "AddResult", "RemoveResult"]
 
 
 SHELF_METADATA_FILENAME = ".docshelf.json"
@@ -91,6 +91,16 @@ class AddResult:
     section_paths: list[Path]
     was_split: bool
     converted_from_pdf: bool
+
+
+@dataclass
+class RemoveResult:
+    """Outcome of :meth:`Shelf.remove_document`."""
+
+    #: Everything that was (or, for a dry run, would be) deleted.
+    removed_paths: list[Path]
+    was_split: bool
+    dry_run: bool
 
 
 class Shelf:
@@ -255,6 +265,100 @@ class Shelf:
             was_split=was_split,
             converted_from_pdf=converted_from_pdf,
         )
+
+    # ------------------------------------------------------ remove document
+
+    def remove_document(
+        self,
+        *,
+        category: str,
+        document: str,
+        dry_run: bool = False,
+    ) -> RemoveResult:
+        """Remove a document — and everything the shelf created for it.
+
+        Deletes the document file, its split-section directory (if any),
+        and its ``.meta.json`` entry, then rebuilds INDEX.md. With
+        ``dry_run=True`` nothing is touched; the result lists what would go.
+
+        Args:
+            category: Category the document lives in (same form as used
+                at ``add_document`` time — it is slugified identically).
+            document: Filename (``foo.md``), slug (``foo``), or the
+                human title used at add time (it is slugified to find
+                the file).
+            dry_run: Report without deleting.
+
+        Raises:
+            FileNotFoundError: The category or document doesn't exist.
+        """
+        category_slug = slugify(category, max_len=80) or "uncategorized"
+        category_dir = self.root / "docs" / category_slug
+        if not category_dir.is_dir():
+            raise FileNotFoundError(
+                f"Category not found: {category_slug!r} (under {self.root / 'docs'})"
+            )
+
+        doc_path = self._resolve_document(category_dir, document)
+        if doc_path is None:
+            raise FileNotFoundError(
+                f"Document not found in {category_slug!r}: {document!r} "
+                "(tried the literal filename and its slugified form)"
+            )
+
+        split_dir = category_dir / doc_path.stem
+        was_split = split_dir.is_dir()
+        removed: list[Path] = [doc_path] + ([split_dir] if was_split else [])
+
+        if not dry_run:
+            doc_path.unlink()
+            if was_split:
+                import shutil
+
+                shutil.rmtree(split_dir)
+            self._prune_category_meta(category_dir, doc_path.name)
+            self.rebuild_index()
+
+        return RemoveResult(removed_paths=removed, was_split=was_split, dry_run=dry_run)
+
+    def _resolve_document(self, category_dir: Path, document: str) -> Path | None:
+        """Find a document file by filename, slug, or (slugified) title."""
+        names = []
+        if document.endswith(".md"):
+            names.append(document)
+        else:
+            names.append(f"{document}.md")
+        slug = slugify(document, max_len=80)
+        if slug and f"{slug}.md" not in names:
+            names.append(f"{slug}.md")
+
+        for name in names:
+            candidate = category_dir / name
+            # Reject anything that resolves outside the category dir
+            # (e.g. a crafted "../../other.md").
+            if candidate.resolve().parent != category_dir.resolve():
+                continue
+            if candidate.is_file():
+                return candidate
+        return None
+
+    def _prune_category_meta(self, category_dir: Path, filename: str) -> None:
+        meta_path = category_dir / ".meta.json"
+        if not meta_path.is_file():
+            return
+        try:
+            data = json.loads(meta_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return
+        if filename not in data:
+            return
+        del data[filename]
+        if data:
+            meta_path.write_text(
+                json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+            )
+        else:
+            meta_path.unlink()
 
     def _update_category_meta(
         self,

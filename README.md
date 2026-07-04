@@ -133,12 +133,13 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) o
 }
 ```
 
-Restart Claude Desktop. You now have six new tools available:
+Restart Claude Desktop. You now have seven new tools available:
 
 | Tool | What it does |
 |---|---|
 | `docshelf_init_shelf` | Bootstrap a new shelf directory. |
 | `docshelf_add_document` | Add a PDF/MD file. Converts, splits, re-indexes. |
+| `docshelf_remove_document` | Remove a document, its sections, and metadata. Re-indexes. |
 | `docshelf_rebuild_index` | Regenerate `INDEX.md` from disk. |
 | `docshelf_search` | Plain-text search across the shelf, with raw URLs. |
 | `docshelf_list_documents` | List documents by category. |

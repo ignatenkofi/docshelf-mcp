@@ -93,6 +93,31 @@ def add_document(params: t.AddDocumentInput) -> str:
 
 
 @mcp.tool(
+    name="docshelf_remove_document",
+    annotations={
+        "title": "Remove a document from the shelf",
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+)
+def remove_document(params: t.RemoveDocumentInput) -> str:
+    """Remove a document — its file, split sections, and metadata entry.
+
+    Accepts the filename, the slug, or the human title used at add time.
+    INDEX.md is regenerated automatically. Pass ``dry_run=true`` to see
+    what would be deleted without touching anything. The caller still owns
+    the git commit / push step.
+    """
+    try:
+        return _serialize(t.remove_document(params))
+    except Exception as exc:
+        logger.exception("remove_document failed")
+        return _serialize({"status": "error", "error": str(exc), "type": type(exc).__name__})
+
+
+@mcp.tool(
     name="docshelf_rebuild_index",
     annotations={
         "title": "Rebuild INDEX.md",

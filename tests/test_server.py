@@ -17,7 +17,7 @@ FIXTURE = Path(__file__).parent / "fixtures" / "sample.md"
 
 
 @pytest.mark.asyncio
-async def test_server_exposes_six_tools():
+async def test_server_exposes_seven_tools():
     tool_list = await mcp.list_tools()
     names = sorted(tool.name for tool in tool_list)
     assert names == sorted(
@@ -27,6 +27,7 @@ async def test_server_exposes_six_tools():
             "docshelf_init_shelf",
             "docshelf_list_documents",
             "docshelf_rebuild_index",
+            "docshelf_remove_document",
             "docshelf_search",
         ]
     )
@@ -84,6 +85,36 @@ def test_add_document_wrapper_then_search(tmp_path: Path):
     )
     assert fallback_out["match_mode"] == "any"
     assert fallback_out["match_count"] >= 1
+
+
+def test_remove_document_wrapper(tmp_path: Path):
+    shelf_path = str(tmp_path / "s")
+    t.init_shelf(t.InitShelfInput(shelf_path=shelf_path, name="T"))
+    t.add_document(
+        t.AddDocumentInput(
+            source_path=str(FIXTURE),
+            category="docs",
+            title="Doomed",
+            split=False,
+            shelf_path=shelf_path,
+        )
+    )
+
+    dry = t.remove_document(
+        t.RemoveDocumentInput(
+            category="docs", document="Doomed", dry_run=True, shelf_path=shelf_path
+        )
+    )
+    assert dry["dry_run"] is True
+    assert dry["removed_paths"] == ["docs/docs/doomed.md"]
+    assert (Path(shelf_path) / "docs" / "docs" / "doomed.md").is_file()
+
+    out = t.remove_document(
+        t.RemoveDocumentInput(category="docs", document="Doomed", shelf_path=shelf_path)
+    )
+    assert out["status"] == "ok"
+    assert not (Path(shelf_path) / "docs" / "docs" / "doomed.md").exists()
+    assert "Doomed" not in (Path(shelf_path) / "INDEX.md").read_text(encoding="utf-8")
 
 
 def test_list_documents_wrapper(tmp_path: Path):

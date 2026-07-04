@@ -28,12 +28,14 @@ from docshelf_mcp.core.splitter import (
 
 __all__ = [
     "AddDocumentInput",
+    "RemoveDocumentInput",
     "RebuildIndexInput",
     "SearchInput",
     "ListDocumentsInput",
     "ConvertPdfInput",
     "InitShelfInput",
     "add_document",
+    "remove_document",
     "rebuild_index",
     "search",
     "list_documents",
@@ -94,6 +96,33 @@ class AddDocumentInput(_BaseInput):
         default="fast",
         description="PDF conversion quality: 'fast' (pymupdf4llm, default) or "
         "'high' (marker-pdf, requires optional install).",
+    )
+    shelf_path: str | None = Field(
+        default=None,
+        description="Path to the shelf root directory. Defaults to $DOCSHELF_ROOT "
+        "or the server's working directory.",
+    )
+
+
+class RemoveDocumentInput(_BaseInput):
+    """Input for ``remove_document``."""
+
+    category: str = Field(
+        ...,
+        description="Category the document lives in (same value as at add time).",
+        min_length=1,
+        max_length=80,
+    )
+    document: str = Field(
+        ...,
+        description="Filename ('foo.md'), slug ('foo'), or the human title "
+        "used at add time.",
+        min_length=1,
+        max_length=200,
+    )
+    dry_run: bool = Field(
+        default=False,
+        description="If true, only report what would be removed — delete nothing.",
     )
     shelf_path: str | None = Field(
         default=None,
@@ -216,6 +245,30 @@ def add_document(params: AddDocumentInput) -> dict:
         "next_steps": (
             f"Commit the changes ('git add . && git commit -m \"docs: add {params.title}\"') "
             "to make the new entry visible via raw URLs."
+        ),
+    }
+
+
+def remove_document(params: RemoveDocumentInput) -> dict:
+    """Implementation of the ``remove_document`` MCP tool."""
+    shelf = _resolve_shelf(params.shelf_path)
+    result = shelf.remove_document(
+        category=params.category,
+        document=params.document,
+        dry_run=params.dry_run,
+    )
+    return {
+        "status": "ok",
+        "shelf_root": str(shelf.root),
+        "removed_paths": [str(p.relative_to(shelf.root)) for p in result.removed_paths],
+        "was_split": result.was_split,
+        "dry_run": result.dry_run,
+        "index_path": "INDEX.md",
+        "next_steps": (
+            "Nothing was deleted (dry run)."
+            if result.dry_run
+            else "Commit the removal ('git add -A && git commit') to update the "
+            "published shelf. INDEX.md has already been regenerated."
         ),
     }
 

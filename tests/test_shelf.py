@@ -193,6 +193,53 @@ def test_rebuild_index_reflects_disk(tmp_path: Path):
     assert "**One**" not in text
 
 
+def test_remove_split_document_leaves_no_debris(tmp_path: Path):
+    big_md = tmp_path / "big.md"
+    chapter_body = "Lorem ipsum dolor sit amet. " * 500
+    big_md.write_text(
+        "# Title\n\n" + "\n\n".join(f"## Section {i}\n\n{chapter_body}" for i in range(5)),
+        encoding="utf-8",
+    )
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    shelf.add_document(big_md, category="big", title="Big Document", split=True)
+    shelf.add_document(FIXTURE, category="big", title="Keeper", split=False)
+
+    result = shelf.remove_document(category="big", document="Big Document")
+    assert not result.dry_run and result.was_split
+
+    cat_dir = shelf.root / "docs" / "big"
+    assert not (cat_dir / "big-document.md").exists()
+    assert not (cat_dir / "big-document").exists()  # split dir incl. SUBINDEX
+    meta = json.loads((cat_dir / ".meta.json").read_text(encoding="utf-8"))
+    assert "big-document.md" not in meta and "keeper.md" in meta
+    idx = (shelf.root / "INDEX.md").read_text(encoding="utf-8")
+    assert "Big Document" not in idx and "Keeper" in idx
+
+
+def test_remove_document_dry_run_touches_nothing(tmp_path: Path):
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    shelf.add_document(FIXTURE, category="docs", title="Stay", split=False)
+
+    result = shelf.remove_document(category="docs", document="stay.md", dry_run=True)
+    assert result.dry_run
+    assert [p.name for p in result.removed_paths] == ["stay.md"]
+    assert (shelf.root / "docs" / "docs" / "stay.md").is_file()
+    assert "Stay" in (shelf.root / "INDEX.md").read_text(encoding="utf-8")
+
+
+def test_remove_document_missing_raises(tmp_path: Path):
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    shelf.add_document(FIXTURE, category="docs", title="Present", split=False)
+
+    with pytest.raises(FileNotFoundError):
+        shelf.remove_document(category="docs", document="absent")
+    with pytest.raises(FileNotFoundError):
+        shelf.remove_document(category="nope", document="present")
+    # Path traversal in the document name never escapes the category dir.
+    with pytest.raises(FileNotFoundError):
+        shelf.remove_document(category="docs", document="../../INDEX.md")
+
+
 def test_shelf_without_remote_still_works(tmp_path: Path):
     shelf = Shelf(tmp_path / "s").init(name="Local Shelf")  # no remote
     shelf.add_document(FIXTURE, category="docs", title="Sample", split=False)
