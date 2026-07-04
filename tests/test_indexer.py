@@ -29,7 +29,86 @@ def test_raw_github_url_strips_dot_git():
 
 def test_raw_github_url_returns_empty_for_non_github():
     assert raw_github_url("https://gitlab.com/me/repo", "main", "x.md") == ""
+    assert raw_github_url("https://bitbucket.org/me/repo", "main", "x.md") == ""
     assert raw_github_url("", "main", "x.md") == ""
+
+
+def test_raw_github_url_dotted_repo_name():
+    # The headline bug: repo name with a dot used to truncate at the dot.
+    assert (
+        raw_github_url("https://github.com/me/my.repo", "main", "docs/foo.md")
+        == "https://raw.githubusercontent.com/me/my.repo/main/docs/foo.md"
+    )
+
+
+def test_raw_github_url_strips_dot_git_https():
+    # Proves the previously-dead .git-stripping branch is now live for https.
+    assert (
+        raw_github_url("https://github.com/me/myrepo.git", "main", "docs/foo.md")
+        == "https://raw.githubusercontent.com/me/myrepo/main/docs/foo.md"
+    )
+
+
+def test_raw_github_url_dotted_repo_with_dot_git():
+    assert (
+        raw_github_url("https://github.com/me/my.repo.git", "main", "x.md")
+        == "https://raw.githubusercontent.com/me/my.repo/main/x.md"
+    )
+
+
+def test_raw_github_url_ssh_without_git():
+    assert (
+        raw_github_url("git@github.com:me/myrepo", "main", "x.md")
+        == "https://raw.githubusercontent.com/me/myrepo/main/x.md"
+    )
+
+
+def test_raw_github_url_trailing_slash_and_path_following():
+    assert (
+        raw_github_url("https://github.com/me/myrepo/", "main", "x.md")
+        == "https://raw.githubusercontent.com/me/myrepo/main/x.md"
+    )
+    # A URL with more path after the repo: repo is still just 'my.repo'.
+    assert (
+        raw_github_url("https://github.com/me/my.repo/tree/main", "main", "x.md")
+        == "https://raw.githubusercontent.com/me/my.repo/main/x.md"
+    )
+
+
+def test_raw_github_url_trailing_prose_dot():
+    assert (
+        raw_github_url("See https://github.com/me/myrepo.", "main", "x.md")
+        == "https://raw.githubusercontent.com/me/myrepo/main/x.md"
+    )
+
+
+def test_raw_github_url_missing_repo_returns_empty():
+    assert raw_github_url("https://github.com/me", "main", "x.md") == ""
+    assert raw_github_url("https://github.com/", "main", "x.md") == ""
+
+
+def test_raw_github_url_encodes_path_segments():
+    assert (
+        raw_github_url("https://github.com/me/r", "main", "docs/my file.md")
+        == "https://raw.githubusercontent.com/me/r/main/docs/my%20file.md"
+    )
+    assert (
+        raw_github_url("https://github.com/me/r", "main", "docs/notes#1.md")
+        == "https://raw.githubusercontent.com/me/r/main/docs/notes%231.md"
+    )
+    # Slashes are preserved as path separators.
+    assert (
+        raw_github_url("https://github.com/me/r", "main", "docs/sub dir/x.md")
+        == "https://raw.githubusercontent.com/me/r/main/docs/sub%20dir/x.md"
+    )
+
+
+def test_raw_github_url_plain_path_unchanged():
+    # Slug-safe paths (what docshelf itself writes) must be byte-identical.
+    assert (
+        raw_github_url("https://github.com/me/r", "main", "docs/routers/mikrotik.md")
+        == "https://raw.githubusercontent.com/me/r/main/docs/routers/mikrotik.md"
+    )
 
 
 def test_build_index_empty_shelf():

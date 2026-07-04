@@ -18,6 +18,7 @@ import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import quote
 
 __all__ = [
     "DocumentEntry",
@@ -79,19 +80,26 @@ def raw_github_url(remote: str, branch: str, relative_path: str) -> str:
     if owner_repo is None:
         return ""
     owner, repo = owner_repo
-    return f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{relative_path}"
+    # Percent-encode path segments (spaces, #, ?, …) while keeping the slashes.
+    path = quote(relative_path, safe="/")
+    return f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{path}"
 
 
-_GITHUB_HTTPS = re.compile(r"github\.com[:/](?P<owner>[^/]+)/(?P<repo>[^/.]+)")
+# owner and repo are each a run of non-slash, non-space characters — so a repo
+# name may legitimately contain dots (``my.repo``). A trailing ``.git`` (clone
+# suffix) or a trailing prose dot is stripped afterwards.
+_GITHUB_REMOTE = re.compile(r"github\.com[:/](?P<owner>[^/\s]+)/(?P<repo>[^/\s]+)")
 
 
 def _parse_owner_repo(remote: str) -> tuple[str, str] | None:
-    m = _GITHUB_HTTPS.search(remote)
+    m = _GITHUB_REMOTE.search(remote)
     if not m:
         return None
-    repo = m.group("repo")
+    repo = m.group("repo").rstrip(".")  # drop a trailing prose dot
     if repo.endswith(".git"):
         repo = repo[:-4]
+    if not repo:
+        return None
     return m.group("owner"), repo
 
 
