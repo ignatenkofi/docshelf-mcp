@@ -11,13 +11,20 @@ a long document into one section per ``## `` heading, returning
 ``[(title, body), ...]`` so the caller can write each section to its own
 file. :func:`write_split_files` is the on-disk variant that handles
 collisions, numbered prefixes, and an idempotent directory rewrite.
+
+All three of cleanup, H2 counting, and H2 slicing are **fence-aware**: a
+``## `` or ``# `` line inside a fenced code block (```` ``` ```` or
+``~~~``) is code, not structure, so it is never counted as a heading, never
+used as a split boundary, and never demoted by the fake-H1 heuristic. This
+matters for the CLI dumps and config exports this project routinely
+ingests, where ``## `` comment lines are common.
 """
 
 from __future__ import annotations
 
 import re
 import shutil
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 
 from docshelf_mcp.core.slugify import slugify
@@ -42,25 +49,75 @@ _FAKE_H1 = re.compile(
 
 _H2_RE = re.compile(r"^## (.+?)\s*$")
 
+#: A fenced-code delimiter line: up to 3 leading spaces, then a run of >=3
+#: backticks or tildes, then an optional info string. Follows CommonMark
+#: closely enough for PDF-extracted Markdown.
+_FENCE_RE = re.compile(r"^(?P<indent> {0,3})(?P<marker>`{3,}|~{3,})(?P<info>.*)$")
+
 #: Files smaller than this are not auto-split. 50 KB is a good empirical
 #: cutoff — small enough that a Claude project tolerates the whole file,
 #: large enough that we don't fragment a normal user guide.
 DEFAULT_SPLIT_THRESHOLD_BYTES = 50 * 1024
 
 
+def _iter_code_flags(lines: Iterable[str]) -> Iterator[tuple[str, bool]]:
+    """Yield ``(line, in_code)`` for each input line.
+
+    ``in_code`` is True for every line inside a fenced code block, *including*
+    the opening and closing fence-marker lines themselves — so a caller can
+    treat "``in_code`` is False" as "this line is eligible to be a heading".
+
+    Fence rules (CommonMark, trimmed for robustness on messy extractor
+    output): a fence opens on a line of >=3 backticks or tildes indented <=3
+    spaces; a backtick opener whose info string contains a backtick is not a
+    valid fence. It closes on a later line using the *same* character, a run
+    at least as long as the opener, and only whitespace after the run (a
+    closing fence carries no info string). An unterminated fence runs to EOF.
+    """
+    in_fence = False
+    fence_char = ""
+    fence_len = 0
+    for line in lines:
+        m = _FENCE_RE.match(line)
+        if not in_fence:
+            if m:
+                marker = m.group("marker")
+                char = marker[0]
+                # A backtick opener's info string may not contain a backtick.
+                if char == "`" and "`" in m.group("info"):
+                    yield line, False
+                    continue
+                in_fence, fence_char, fence_len = True, char, len(marker)
+                yield line, True  # the opener line is itself code
+            else:
+                yield line, False
+        else:
+            if (
+                m
+                and m.group("marker")[0] == fence_char
+                and len(m.group("marker")) >= fence_len
+                and not m.group("info").strip()
+            ):
+                in_fence, fence_char, fence_len = False, "", 0
+                yield line, True  # the closer line is itself code
+            else:
+                yield line, True  # still inside the fence
+
+
 def _clean_lines(lines: Iterable[str]) -> list[str]:
     """Run the line-level cleanup heuristics. Returns the cleaned list."""
     out: list[str] = []
     blank_run = 0
-    for raw_line in lines:
-        line = raw_line.rstrip("\n")
-
-        # Demote fake H1s to indented code (preserves content, kills the false header)
-        if _FAKE_H1.match(line):
+    for line, in_code in _iter_code_flags(raw.rstrip("\n") for raw in lines):
+        # Demote fake H1s to indented code (preserves content, kills the false
+        # header) — but never touch lines inside a fenced block, where a
+        # "# 12 ADC ..." is verbatim CLI output, not a stray heading.
+        if not in_code and _FAKE_H1.match(line):
             line = "    " + line[2:]
 
-        # Collapse 3+ blank lines into one
-        if not line.strip():
+        # Collapse 3+ blank lines into one — but preserve blank lines inside
+        # fences, where they are meaningful code formatting.
+        if not in_code and not line.strip():
             blank_run += 1
             if blank_run >= 2:
                 continue
@@ -88,7 +145,11 @@ def should_split(text: str, threshold_bytes: int = DEFAULT_SPLIT_THRESHOLD_BYTES
     """
     if len(text.encode("utf-8")) <= threshold_bytes:
         return False
-    h2_count = sum(1 for line in text.splitlines() if _H2_RE.match(line))
+    h2_count = sum(
+        1
+        for line, in_code in _iter_code_flags(text.splitlines())
+        if not in_code and _H2_RE.match(line)
+    )
     return h2_count >= 2
 
 
@@ -103,12 +164,14 @@ def split_by_h2(text: str) -> list[tuple[str, str]]:
     to a file preserves the heading.
     """
     sections: list[tuple[str, list[str]]] = [("preamble", [])]
-    for line in text.splitlines():
-        m = _H2_RE.match(line)
+    for line, in_code in _iter_code_flags(text.splitlines()):
+        m = None if in_code else _H2_RE.match(line)
         if m:
             title = m.group(1).strip()
             sections.append((title, [line]))
         else:
+            # Fenced ``## `` lines and both fence markers land here, so each
+            # section body keeps balanced fences (no orphan closer next door).
             sections[-1][1].append(line)
 
     if not "\n".join(sections[0][1]).strip():
