@@ -58,9 +58,13 @@ under `tests/`. The bar is "this regression would have been caught."
 
 ## Releases
 
-Maintainer-only:
+Maintainer-only. The version lives in **one place**:
+`src/docshelf_mcp/__init__.py:__version__` — `pyproject.toml` reads it via
+hatch's dynamic version. To cut a release:
 
 ```bash
+# 1. Bump __version__ in src/docshelf_mcp/__init__.py (+ CHANGELOG entry)
+# 2. Tag and push:
 git tag vX.Y.Z
 git push origin vX.Y.Z
 ```
