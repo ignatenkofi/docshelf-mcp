@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="970" height="396" viewBox="0 0 970 396" font-family="-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif">
+<rect width="970" height="396" rx="14" fill="#ffffff" stroke="#e5e7eb"/>
+<text x="30" y="44" font-size="22" font-weight="700" fill="#1f2933">Tokens to answer one question</text>
+<text x="30" y="70" font-size="14" fill="#6b7280">Bars to scale · measured on two real shelves · green = what docshelf actually loads</text>
+<text x="30" y="112" font-size="15" font-weight="700" fill="#1f2933">HomeLab — 24 hardware manuals (3,055 sections)</text>
+<text x="720" y="112" font-size="20" font-weight="800" fill="#2f9e44" text-anchor="end">330× fewer — 99.7% less</text>
+<text x="288" y="148" font-size="13" fill="#1f2933" text-anchor="end">Attach all 24 manuals to the chat</text>
+<rect x="300" y="128" width="420" height="30" rx="4" fill="#cbd5e1" stroke="#94a3b8"/>
+<text x="730" y="148" font-size="13" font-weight="700" fill="#1f2933">1.22M tokens</text>
+<text x="730" y="164" font-size="11" font-weight="600" fill="#c92a2a">✗ won’t fit in a 200K context</text>
+<text x="288" y="190" font-size="13" font-weight="600" fill="#2f9e44" text-anchor="end">docshelf: INDEX + 1 section</text>
+<rect x="300" y="170" width="4.0" height="30" rx="3" fill="#2f9e44"/>
+<text x="314.0" y="190" font-size="13" font-weight="700" fill="#2f9e44">3.7K tokens</text>
+<text x="30" y="262" font-size="15" font-weight="700" fill="#1f2933">Une Vie — one full novel (16 chapters)</text>
+<text x="720" y="262" font-size="20" font-weight="800" fill="#2f9e44" text-anchor="end">14× fewer — 93% less</text>
+<text x="288" y="298" font-size="13" fill="#1f2933" text-anchor="end">Load the whole book</text>
+<rect x="300" y="278" width="420" height="30" rx="4" fill="#cbd5e1" stroke="#94a3b8"/>
+<text x="730" y="298" font-size="13" font-weight="700" fill="#1f2933">111.1K tokens</text>
+<text x="288" y="340" font-size="13" font-weight="600" fill="#2f9e44" text-anchor="end">docshelf: INDEX + 1 section</text>
+<rect x="300" y="320" width="29.4" height="30" rx="3" fill="#2f9e44"/>
+<text x="339.4" y="340" font-size="13" font-weight="700" fill="#2f9e44">7.8K tokens</text>
+</svg>
