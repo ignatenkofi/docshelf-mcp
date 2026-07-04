@@ -282,9 +282,16 @@ Yes — `from docshelf_mcp import Shelf` and use the class directly. See [`docs/
 
 ---
 
-## Demo
+## Demo — does it actually save tokens?
 
-A short walkthrough video / GIF is planned: <https://github.com/ignatenkofi/docshelf-mcp/blob/main/docs/demo.md> *(coming soon)*
+Measured on two real shelves (24 hardware manuals; a full novel split by
+chapter): answering a question the docshelf way costs **~3.7K tokens vs 1.2M**
+to dump the collection — **99.7% fewer** — and the biggest manual (RouterOS,
+~1.05M tokens) doesn't even fit in a 200K context window, while a section fetch
+always does.
+
+📊 **Full write-up with the numbers, chart, and a reproducible benchmark:
+[`docs/demo.md`](docs/demo.md)** (run [`benchmarks/token_savings.py`](benchmarks/token_savings.py) on your own shelf).
 
 ---
 

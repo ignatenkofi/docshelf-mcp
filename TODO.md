@@ -9,11 +9,13 @@ prioritised with `P1` / `P2` / `P3` labels.
 
 ## Ideas
 
-_(empty — everything below has been triaged into issues)_
+_(empty — everything below has been triaged into issues, and the whole
+P1–P3 backlog is now shipped)_
 
-## Promoted to issues
+## Shipped (were ideas here)
 
 - **Live demo with real numbers** →
-  [#15](https://github.com/ignatenkofi/docshelf-mcp/issues/15)
+  [#15](https://github.com/ignatenkofi/docshelf-mcp/issues/15) →
+  [`docs/demo.md`](docs/demo.md) + [`benchmarks/`](benchmarks/)
 - **Pipeline: auto-warn on suspicious sections during regeneration** →
   [#8](https://github.com/ignatenkofi/docshelf-mcp/issues/8)

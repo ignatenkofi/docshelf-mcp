@@ -127,6 +127,16 @@ original PDF.
 
 ---
 
+## Does it actually save tokens? (measured)
+
+On this very homelab shelf, answering a question the docshelf way costs
+**~3.7K tokens** — versus **1.22M** to dump the collection (99.7% fewer), and
+the RouterOS manual alone (~1.05M tokens) doesn't fit in a 200K context window
+at all. See the **[measured demo →](demo.md)** for the full breakdown, chart,
+and a benchmark you can run on your own shelf.
+
+---
+
 ## Resources
 
 - 📦 [PyPI](https://pypi.org/project/docshelf-mcp/) — `pip install docshelf-mcp`

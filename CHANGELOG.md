@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Measured demo + benchmark** — [`docs/demo.md`](docs/demo.md) quantifies
+  the token savings on two real shelves (24 hardware manuals; a full novel),
+  with a reproducible [`benchmarks/token_savings.py`](benchmarks/token_savings.py)
+  you can run on any shelf. (#15)
 - Ingest **DOCX / HTML / EPUB** in addition to PDF/Markdown, via a
   suffix-dispatched converter with deferred imports and new optional
   extras (`[docx]`, `[html]`, `[epub]`, `[formats]`). (#16)
