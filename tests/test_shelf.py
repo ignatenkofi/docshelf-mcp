@@ -203,6 +203,24 @@ def test_add_document_unsupported_type(tmp_path: Path):
         shelf.add_document(bad, category="x", title="No")
 
 
+def test_add_html_document(tmp_path: Path):
+    pytest.importorskip("markdownify")
+    page = tmp_path / "manual.html"
+    page.write_text(
+        "<html><body><h1>Router Manual</h1><p>VLAN configuration notes.</p>"
+        "</body></html>",
+        encoding="utf-8",
+    )
+    shelf = Shelf(tmp_path / "s").init(name="S", remote="https://github.com/me/r")
+    result = shelf.add_document(page, category="net", title="Router Manual", split=False)
+    assert result.document_path.is_file()
+    assert result.converted_from_pdf is False
+    body = result.document_path.read_text(encoding="utf-8")
+    assert "VLAN configuration notes" in body
+    # Searchable through the normal pipeline.
+    assert shelf.search("VLAN")
+
+
 def test_search_finds_keyword(tmp_path: Path):
     shelf = Shelf(tmp_path / "s").init(name="S")
     shelf.add_document(FIXTURE, category="docs", title="Sample", split=False)

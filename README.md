@@ -68,6 +68,12 @@ Optional high-quality PDF engine (pulls ~2 GB of PyTorch — only if you need it
 pip install "docshelf-mcp[high-quality]"
 ```
 
+Optional input formats beyond PDF/Markdown — DOCX, HTML, EPUB (lightweight):
+
+```bash
+pip install "docshelf-mcp[formats]"   # or [docx] / [html] / [epub]
+```
+
 ---
 
 ## 📋 Project Prompt
@@ -138,7 +144,7 @@ Restart Claude Desktop. You now have ten new tools available:
 | Tool | What it does |
 |---|---|
 | `docshelf_init_shelf` | Bootstrap a new shelf directory. |
-| `docshelf_add_document` | Add a PDF/MD file. Converts, splits, re-indexes. |
+| `docshelf_add_document` | Add a file (MD/PDF/DOCX/HTML/EPUB). Converts, splits, re-indexes. |
 | `docshelf_add_directory` | Add every PDF/MD in a folder in one call. Re-indexes once. |
 | `docshelf_read_document` | Read a document/section's content over MCP (works on private shelves). |
 | `docshelf_remove_document` | Remove a document, its sections, and metadata. Re-indexes. |

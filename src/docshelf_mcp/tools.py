@@ -94,7 +94,9 @@ class AddDocumentInput(_BaseInput):
 
     source_path: str = Field(
         ...,
-        description="Absolute path to the source .pdf or .md file on disk.",
+        description="Absolute path to the source file. Supported: .md, .pdf, "
+        ".docx, .html/.htm, .epub (DOCX/HTML/EPUB need the matching extra, "
+        "e.g. pip install 'docshelf-mcp[formats]').",
         min_length=1,
     )
     category: str = Field(

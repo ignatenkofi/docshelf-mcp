@@ -30,7 +30,11 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Literal
 
-from docshelf_mcp.core.converter import Quality, pdf_to_markdown
+from docshelf_mcp.core.converter import (
+    SUPPORTED_INPUT_SUFFIXES,
+    Quality,
+    source_to_markdown,
+)
 from docshelf_mcp.core.indexer import (
     DEFAULT_PREAMBLE,
     DEFAULT_SUBINDEX_THRESHOLD,
@@ -290,16 +294,17 @@ class Shelf:
 
         Raises:
             FileNotFoundError: ``source`` doesn't exist.
-            ValueError: ``source`` is not a .pdf or .md file.
+            ValueError: ``source`` is not a supported input type.
         """
         source = Path(source).expanduser().resolve()
         if not source.exists():
             raise FileNotFoundError(f"Source not found: {source}")
 
         suffix = source.suffix.lower()
-        if suffix not in {".pdf", ".md"}:
+        if suffix not in SUPPORTED_INPUT_SUFFIXES:
             raise ValueError(
-                f"Unsupported source type {suffix!r}; expected .pdf or .md"
+                f"Unsupported source type {suffix!r}; expected one of "
+                f"{', '.join(SUPPORTED_INPUT_SUFFIXES)}"
             )
 
         category_slug = slugify(category, max_len=80) or "uncategorized"
@@ -309,12 +314,8 @@ class Shelf:
         doc_stem = slugify(title, max_len=80) or "document"
         doc_path = category_dir / f"{doc_stem}.md"
 
-        if suffix == ".pdf":
-            raw_md = pdf_to_markdown(source, quality=quality)
-            converted_from_pdf = True
-        else:
-            raw_md = source.read_text(encoding="utf-8", errors="replace")
-            converted_from_pdf = False
+        raw_md = source_to_markdown(source, quality=quality)
+        converted_from_pdf = suffix == ".pdf"
 
         cleaned = clean_markdown(raw_md)
         if not cleaned.lstrip().startswith("#"):
