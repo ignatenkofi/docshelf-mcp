@@ -128,6 +128,32 @@ def add_directory(params: t.AddDirectoryInput) -> str:
 
 
 @mcp.tool(
+    name="docshelf_read_document",
+    annotations={
+        "title": "Read a document or section",
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+)
+def read_document(params: t.ReadDocumentInput) -> str:
+    """Read a document or section file from inside the shelf's ``docs/``.
+
+    Returns the file content directly over MCP — useful for private or
+    purely-local shelves where the ``raw.githubusercontent.com`` fetch
+    trick doesn't apply. Pass a ``relative_path`` from ``search`` /
+    ``list_documents``. Large files are truncated to ``max_bytes`` (default
+    100 KB) with ``truncated: true``; page with ``offset`` or read the
+    individual split sections. Paths that escape ``docs/`` are rejected.
+    """
+    try:
+        return _serialize(t.read_document(params))
+    except Exception as exc:
+        return _error_response(exc, "read_document")
+
+
+@mcp.tool(
     name="docshelf_remove_document",
     annotations={
         "title": "Remove a document from the shelf",

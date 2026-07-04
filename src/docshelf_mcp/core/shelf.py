@@ -49,7 +49,7 @@ from docshelf_mcp.core.splitter import (
     write_split_files,
 )
 
-__all__ = ["Shelf", "ShelfConfig", "AddResult", "RemoveResult"]
+__all__ = ["Shelf", "ShelfConfig", "AddResult", "RemoveResult", "ReadResult"]
 
 
 SHELF_METADATA_FILENAME = ".docshelf.json"
@@ -102,6 +102,18 @@ class RemoveResult:
     removed_paths: list[Path]
     was_split: bool
     dry_run: bool
+
+
+@dataclass
+class ReadResult:
+    """Outcome of :meth:`Shelf.read_document`."""
+
+    #: Normalized path relative to the shelf root.
+    relative_path: str
+    content: str
+    size_bytes: int
+    #: True if the file is larger than the returned slice.
+    truncated: bool
 
 
 class Shelf:
@@ -339,6 +351,56 @@ class Shelf:
         # A single rebuild reflects every successfully-added file.
         self.rebuild_index()
         return results
+
+    # -------------------------------------------------------- read document
+
+    def read_document(
+        self,
+        relative_path: str,
+        *,
+        max_bytes: int = 100_000,
+        offset: int = 0,
+    ) -> ReadResult:
+        """Read a document or section file from inside the shelf's ``docs/``.
+
+        Lets an agent fetch exact content over MCP even when the shelf isn't a
+        public GitHub repo (the raw-URL trick only works for public repos).
+
+        Args:
+            relative_path: Path relative to the shelf root, as returned by
+                :meth:`search` / :func:`scan_shelf` (e.g.
+                ``"docs/routers/mikrotik/003-firewall.md"``).
+            max_bytes: Cap the returned slice so a huge datasheet can't blow up
+                the caller's context window. ``truncated`` flags when hit.
+            offset: Byte offset to start from, for paging through a big file.
+
+        Raises:
+            ValueError: ``offset``/``max_bytes`` negative, or the path resolves
+                outside the shelf's ``docs/`` directory (traversal / symlink
+                escape).
+            FileNotFoundError: No such file under ``docs/``.
+        """
+        if offset < 0 or max_bytes < 0:
+            raise ValueError("offset and max_bytes must be non-negative")
+
+        docs_root = (self.root / "docs").resolve()
+        target = (self.root / relative_path).resolve()
+        if not target.is_relative_to(docs_root):
+            raise ValueError(
+                f"Path escapes the shelf docs/ directory: {relative_path!r}"
+            )
+        if not target.is_file():
+            raise FileNotFoundError(f"Document not found under docs/: {relative_path!r}")
+
+        data = target.read_bytes()
+        size = len(data)
+        chunk = data[offset : offset + max_bytes] if max_bytes else data[offset:]
+        return ReadResult(
+            relative_path=target.relative_to(self.root).as_posix(),
+            content=chunk.decode("utf-8", errors="replace"),
+            size_bytes=size,
+            truncated=offset + len(chunk) < size,
+        )
 
     # ------------------------------------------------------ remove document
 

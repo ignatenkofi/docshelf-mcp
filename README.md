@@ -133,13 +133,14 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) o
 }
 ```
 
-Restart Claude Desktop. You now have eight new tools available:
+Restart Claude Desktop. You now have nine new tools available:
 
 | Tool | What it does |
 |---|---|
 | `docshelf_init_shelf` | Bootstrap a new shelf directory. |
 | `docshelf_add_document` | Add a PDF/MD file. Converts, splits, re-indexes. |
 | `docshelf_add_directory` | Add every PDF/MD in a folder in one call. Re-indexes once. |
+| `docshelf_read_document` | Read a document/section's content over MCP (works on private shelves). |
 | `docshelf_remove_document` | Remove a document, its sections, and metadata. Re-indexes. |
 | `docshelf_rebuild_index` | Regenerate `INDEX.md` from disk. |
 | `docshelf_search` | Plain-text search across the shelf, with raw URLs. |
@@ -249,7 +250,7 @@ shelf.add_document("paper.pdf", category="research", title="...", quality="high"
 Because it's dead simple, costs nothing to host, and the AI is already good at chasing links. You can layer embedding search on top later if you want — the on-disk shape is a normal git repo.
 
 **Does this work with private repos?**
-Not for the raw-URL trick — `raw.githubusercontent.com` won't serve them without auth. The local search tool works fine on private shelves; you just lose the "AI fetches sections directly" benefit. Make the doc repo public (separate from your code repo).
+Partly. The raw-URL trick needs a public repo — `raw.githubusercontent.com` won't serve private ones without auth. But `docshelf_search` **and** `docshelf_read_document` both work over MCP on private (or purely local, non-git) shelves: the model searches, then reads the exact section's content directly from the server, no raw URL required. You only lose the ability to hand a bare `INDEX.md` to a chat project and have it fetch by URL — with the MCP server attached, the full flow works either way. Make the doc repo public if you want the URL-fetch path too.
 
 **Do I have to use GitHub?**
 No. The shelf is just a directory. If you don't set a `github_remote`, INDEX.md still gets generated — entries just won't have URLs. You can host the static files anywhere that serves raw text (S3, Cloudflare R2, GitLab raw, Gitea, …) and post-process URLs yourself.

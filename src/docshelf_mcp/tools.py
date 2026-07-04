@@ -29,6 +29,7 @@ from docshelf_mcp.core.splitter import (
 __all__ = [
     "AddDocumentInput",
     "AddDirectoryInput",
+    "ReadDocumentInput",
     "RemoveDocumentInput",
     "RebuildIndexInput",
     "SearchInput",
@@ -38,6 +39,7 @@ __all__ = [
     "NotAShelfError",
     "add_document",
     "add_directory",
+    "read_document",
     "remove_document",
     "rebuild_index",
     "search",
@@ -162,6 +164,32 @@ class AddDirectoryInput(_BaseInput):
         description="Path to the shelf root directory. Defaults to $DOCSHELF_ROOT "
         "or the server's working directory.",
     )
+
+
+class ReadDocumentInput(_BaseInput):
+    """Input for ``read_document``."""
+
+    relative_path: str = Field(
+        ...,
+        description="Path relative to the shelf root, as returned by search / "
+        "list_documents (e.g. 'docs/routers/mikrotik/003-firewall.md').",
+        min_length=1,
+        max_length=1000,
+    )
+    max_bytes: int = Field(
+        default=100_000,
+        description="Maximum bytes to return. Larger files are truncated and the "
+        "response sets truncated=true — page with 'offset' or read the "
+        "individual split sections instead.",
+        ge=1,
+        le=5_000_000,
+    )
+    offset: int = Field(
+        default=0,
+        description="Byte offset to start reading from (for paging a large file).",
+        ge=0,
+    )
+    shelf_path: str | None = Field(default=None)
 
 
 class RemoveDocumentInput(_BaseInput):
@@ -348,6 +376,27 @@ def add_directory(params: AddDirectoryInput) -> dict:
             "Commit the changes ('git add . && git commit') to publish the new "
             "entries via raw URLs."
         ),
+    }
+
+
+def read_document(params: ReadDocumentInput) -> dict:
+    """Implementation of the ``read_document`` MCP tool."""
+    shelf = _resolve_shelf(params.shelf_path)
+    result = shelf.read_document(
+        params.relative_path, max_bytes=params.max_bytes, offset=params.offset
+    )
+    cfg = shelf.config
+    from docshelf_mcp.core.indexer import raw_github_url
+
+    url = raw_github_url(cfg.remote, cfg.branch, result.relative_path) if cfg.remote else ""
+    return {
+        "status": "ok",
+        "shelf_root": str(shelf.root),
+        "relative_path": result.relative_path,
+        "content": result.content,
+        "size_bytes": result.size_bytes,
+        "truncated": result.truncated,
+        "raw_url": url,
     }
 
 

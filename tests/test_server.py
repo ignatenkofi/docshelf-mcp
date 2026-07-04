@@ -17,13 +17,14 @@ FIXTURE = Path(__file__).parent / "fixtures" / "sample.md"
 
 
 @pytest.mark.asyncio
-async def test_server_exposes_eight_tools():
+async def test_server_exposes_nine_tools():
     tool_list = await mcp.list_tools()
     names = sorted(tool.name for tool in tool_list)
     assert names == sorted(
         [
             "docshelf_add_document",
             "docshelf_add_directory",
+            "docshelf_read_document",
             "docshelf_convert_pdf",
             "docshelf_init_shelf",
             "docshelf_list_documents",
@@ -86,6 +87,43 @@ def test_add_document_wrapper_then_search(tmp_path: Path):
     )
     assert fallback_out["match_mode"] == "any"
     assert fallback_out["match_count"] >= 1
+
+
+def test_read_document_wrapper(tmp_path: Path):
+    shelf_path = str(tmp_path / "s")
+    t.init_shelf(
+        t.InitShelfInput(
+            shelf_path=shelf_path, name="T", github_remote="https://github.com/me/r"
+        )
+    )
+    t.add_document(
+        t.AddDocumentInput(
+            source_path=str(FIXTURE), category="docs", title="Sample",
+            split=False, shelf_path=shelf_path,
+        )
+    )
+    out = t.read_document(
+        t.ReadDocumentInput(relative_path="docs/docs/sample.md", shelf_path=shelf_path)
+    )
+    assert out["status"] == "ok"
+    assert "BGP" in out["content"]
+    assert out["truncated"] is False
+    assert "raw.githubusercontent.com" in out["raw_url"]
+
+
+def test_read_document_wrapper_traversal_is_error(tmp_path: Path):
+    from docshelf_mcp import server
+
+    shelf_path = str(tmp_path / "s")
+    t.init_shelf(t.InitShelfInput(shelf_path=shelf_path, name="T"))
+    (Path(shelf_path) / "secret.txt").write_text("secret", encoding="utf-8")
+    out = json.loads(
+        server.read_document(
+            t.ReadDocumentInput(relative_path="docs/../secret.txt", shelf_path=shelf_path)
+        )
+    )
+    assert out["status"] == "error"
+    assert out["type"] == "ValueError"
 
 
 def test_add_directory_wrapper(tmp_path: Path):

@@ -253,6 +253,63 @@ def test_rebuild_index_reflects_disk(tmp_path: Path):
     assert "**One**" not in text
 
 
+def test_read_document_returns_content(tmp_path: Path):
+    shelf = Shelf(tmp_path / "s").init(name="S", remote="https://github.com/me/r")
+    shelf.add_document(FIXTURE, category="docs", title="Sample", split=False)
+
+    res = shelf.read_document("docs/docs/sample.md")
+    assert res.relative_path == "docs/docs/sample.md"
+    assert "BGP" in res.content
+    assert res.size_bytes == len((shelf.root / "docs/docs/sample.md").read_bytes())
+    assert res.truncated is False
+
+
+def test_read_document_truncation_and_offset(tmp_path: Path):
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    doc = tmp_path / "big.md"
+    doc.write_text("# T\n\n" + ("x" * 5000), encoding="utf-8")
+    shelf.add_document(doc, category="docs", title="Big One", split=False)
+    rel = "docs/docs/big-one.md"
+
+    head = shelf.read_document(rel, max_bytes=100)
+    assert len(head.content.encode("utf-8")) == 100
+    assert head.truncated is True
+
+    # Paging with an offset reads the tail without truncation.
+    total = head.size_bytes
+    tail = shelf.read_document(rel, max_bytes=total, offset=total - 10)
+    assert tail.truncated is False
+    assert len(tail.content) == 10
+
+
+def test_read_document_rejects_traversal(tmp_path: Path):
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    shelf.add_document(FIXTURE, category="docs", title="Sample", split=False)
+    # A secret outside docs/ must be unreadable.
+    (shelf.root / "secret.txt").write_text("top secret", encoding="utf-8")
+
+    with pytest.raises(ValueError):
+        shelf.read_document("docs/../secret.txt")
+    with pytest.raises(ValueError):
+        shelf.read_document("../../etc/passwd")
+    with pytest.raises(ValueError):
+        shelf.read_document("INDEX.md")  # at root, not under docs/
+
+
+def test_read_document_missing_raises(tmp_path: Path):
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    with pytest.raises(FileNotFoundError):
+        shelf.read_document("docs/docs/absent.md")
+
+
+def test_read_document_works_without_remote(tmp_path: Path):
+    # The whole point: private/local shelves with no remote still serve content.
+    shelf = Shelf(tmp_path / "s").init(name="Local")  # no remote
+    shelf.add_document(FIXTURE, category="docs", title="Sample", split=False)
+    res = shelf.read_document("docs/docs/sample.md")
+    assert "BGP" in res.content
+
+
 def test_remove_split_document_leaves_no_debris(tmp_path: Path):
     big_md = tmp_path / "big.md"
     chapter_body = "Lorem ipsum dolor sit amet. " * 500

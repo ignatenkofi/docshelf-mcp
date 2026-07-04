@@ -110,6 +110,20 @@ Plain-text search across every Markdown file in the shelf.
 
 Each hit includes the file's relative path, a 200-char snippet, and (if a remote is configured) the raw URL — so the model can immediately fetch the file.
 
+### `docshelf_read_document`
+
+Read a document or section's content directly over MCP — the private-shelf counterpart to the raw-URL fetch. Pass a `relative_path` from `search` / `list_documents`.
+
+```jsonc
+{
+  "relative_path": "docs/routers/mikrotik/003-firewall.md",
+  "max_bytes": 100000,  // truncate beyond this; response flags truncated=true
+  "offset": 0           // byte offset, for paging a large file
+}
+```
+
+The response returns `content`, `size_bytes`, `truncated`, and (if a remote is configured) `raw_url`. Paths that resolve outside the shelf's `docs/` directory are rejected.
+
 ### `docshelf_list_documents`
 
 List documents grouped by category.
