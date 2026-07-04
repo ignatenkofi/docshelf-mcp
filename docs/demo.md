@@ -48,6 +48,10 @@ Two things stand out:
   tokens(median section)` — one index read plus one section fetch. "Whole
   collection" is the sum of the full documents; "biggest document" is the
   largest single one.
+- **The result is robust, not cherry-picked.** The win comes from the *index*,
+  not from picking a tiny section: even if the model fetched five sections
+  instead of one, the HomeLab query would be ~4.3K tokens — still **99.6%**
+  below dumping the collection. The headline barely moves.
 - **Token counting.** Network-free by default, using OpenAI's published rule of
   thumb of ~4 characters per token. Because all three measures use the *same*
   counter, **the tokenizer cancels out of the savings percentages** — the
