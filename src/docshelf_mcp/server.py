@@ -242,9 +242,11 @@ def search(params: t.SearchInput) -> str:
     Tokens are space-split; each must appear (case-insensitive) for a hit
     to count. If no file contains all tokens, the search falls back to
     any-token matching and the response reports ``match_mode: "any"``.
-    Results include the relative path, a 200-char snippet, and — if a
-    GitHub remote is configured — the raw URL so the model can fetch the
-    matching file directly.
+    Heading/title matches are ranked above body-only matches, and for a
+    split document the section files are returned rather than the
+    whole-file parent. Results include the relative path, a
+    word-boundary-trimmed snippet, and — if a remote is configured — the
+    fetch URL so the model can pull the matching file directly.
     """
     try:
         return _serialize(t.search(params))

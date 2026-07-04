@@ -538,9 +538,15 @@ def list_documents(params: ListDocumentsInput) -> dict:
     entries = shelf.scan()
     cfg = shelf.config
 
+    # Match the filter against the on-disk category slug, so the human form
+    # ("Research Papers") finds the "research-papers" directory.
+    from docshelf_mcp.core.slugify import slugify
+
+    filter_slug = slugify(params.category, max_len=80) if params.category else None
+
     grouped: dict[str, list[dict]] = {}
     for e in entries:
-        if params.category and e.category != params.category:
+        if filter_slug and e.category != filter_slug:
             continue
         url = cfg.url_for(e.relative_path)
         grouped.setdefault(e.category, []).append(

@@ -189,6 +189,23 @@ def test_remove_document_wrapper(tmp_path: Path):
     assert "Doomed" not in (Path(shelf_path) / "INDEX.md").read_text(encoding="utf-8")
 
 
+def test_list_documents_category_filter_accepts_human_form(tmp_path: Path):
+    shelf_path = str(tmp_path / "s")
+    t.init_shelf(t.InitShelfInput(shelf_path=shelf_path, name="T"))
+    t.add_document(
+        t.AddDocumentInput(
+            source_path=str(FIXTURE), category="research-papers", title="P",
+            split=False, shelf_path=shelf_path,
+        )
+    )
+    # The human display form must resolve to the on-disk slug directory.
+    out = t.list_documents(
+        t.ListDocumentsInput(category="Research Papers", shelf_path=shelf_path)
+    )
+    assert out["total_documents"] == 1
+    assert "research-papers" in out["categories"]
+
+
 def test_list_documents_wrapper(tmp_path: Path):
     shelf_path = str(tmp_path / "s")
     t.init_shelf(
