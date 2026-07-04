@@ -28,6 +28,8 @@ from docshelf_mcp.core.splitter import (
 
 __all__ = [
     "AddDocumentInput",
+    "AddDirectoryInput",
+    "ReadDocumentInput",
     "RemoveDocumentInput",
     "RebuildIndexInput",
     "SearchInput",
@@ -36,6 +38,8 @@ __all__ = [
     "InitShelfInput",
     "NotAShelfError",
     "add_document",
+    "add_directory",
+    "read_document",
     "remove_document",
     "rebuild_index",
     "search",
@@ -126,6 +130,66 @@ class AddDocumentInput(_BaseInput):
         description="Path to the shelf root directory. Defaults to $DOCSHELF_ROOT "
         "or the server's working directory.",
     )
+
+
+class AddDirectoryInput(_BaseInput):
+    """Input for ``add_directory``."""
+
+    source_dir: str = Field(
+        ...,
+        description="Directory to scan (non-recursive) for documents to add.",
+        min_length=1,
+    )
+    category: str = Field(
+        ...,
+        description="Category bucket for every file found. Created if missing.",
+        min_length=1,
+        max_length=80,
+    )
+    patterns: list[str] = Field(
+        default_factory=lambda: ["*.pdf", "*.md"],
+        description="Glob patterns to include. Defaults to PDFs and Markdown.",
+        max_length=16,
+    )
+    split: bool = Field(
+        default=True,
+        description="Auto-split large documents (>50 KB) by H2 heading.",
+    )
+    quality: Quality = Field(
+        default="fast",
+        description="PDF conversion quality: 'fast' (default) or 'high'.",
+    )
+    shelf_path: str | None = Field(
+        default=None,
+        description="Path to the shelf root directory. Defaults to $DOCSHELF_ROOT "
+        "or the server's working directory.",
+    )
+
+
+class ReadDocumentInput(_BaseInput):
+    """Input for ``read_document``."""
+
+    relative_path: str = Field(
+        ...,
+        description="Path relative to the shelf root, as returned by search / "
+        "list_documents (e.g. 'docs/routers/mikrotik/003-firewall.md').",
+        min_length=1,
+        max_length=1000,
+    )
+    max_bytes: int = Field(
+        default=100_000,
+        description="Maximum bytes to return. Larger files are truncated and the "
+        "response sets truncated=true — page with 'offset' or read the "
+        "individual split sections instead.",
+        ge=1,
+        le=5_000_000,
+    )
+    offset: int = Field(
+        default=0,
+        description="Byte offset to start reading from (for paging a large file).",
+        ge=0,
+    )
+    shelf_path: str | None = Field(default=None)
 
 
 class RemoveDocumentInput(_BaseInput):
@@ -256,12 +320,14 @@ def add_document(params: AddDocumentInput) -> dict:
         split=params.split,
         quality=params.quality,
     )
-    shelf.rebuild_index()
+    # Shelf.add_document already rebuilt INDEX.md — no second rebuild here.
     return {
         "status": "ok",
         "shelf_root": str(shelf.root),
-        "document_path": str(result.document_path.relative_to(shelf.root)),
-        "section_paths": [str(p.relative_to(shelf.root)) for p in result.section_paths],
+        "document_path": result.document_path.relative_to(shelf.root).as_posix(),
+        "section_paths": [
+            p.relative_to(shelf.root).as_posix() for p in result.section_paths
+        ],
         "was_split": result.was_split,
         "section_count": len(result.section_paths),
         "converted_from_pdf": result.converted_from_pdf,
@@ -270,6 +336,69 @@ def add_document(params: AddDocumentInput) -> dict:
             f"Commit the changes ('git add . && git commit -m \"docs: add {params.title}\"') "
             "to make the new entry visible via raw URLs."
         ),
+    }
+
+
+def add_directory(params: AddDirectoryInput) -> dict:
+    """Implementation of the ``add_directory`` MCP tool."""
+    shelf = _resolve_shelf(params.shelf_path)
+    results = shelf.add_directory(
+        params.source_dir,
+        category=params.category,
+        pattern=params.patterns,
+        split=params.split,
+        quality=params.quality,
+    )
+
+    added, failed = [], []
+    for r in results:
+        if r["status"] == "ok":
+            res = r["result"]
+            added.append(
+                {
+                    "file": r["file"],
+                    "document_path": res.document_path.relative_to(shelf.root).as_posix(),
+                    "was_split": res.was_split,
+                    "section_count": len(res.section_paths),
+                }
+            )
+        else:
+            failed.append({"file": r["file"], "error": r["error"]})
+
+    return {
+        "status": "ok",
+        "shelf_root": str(shelf.root),
+        "category": params.category,
+        "added_count": len(added),
+        "failed_count": len(failed),
+        "added": added,
+        "failed": failed,
+        "index_path": "INDEX.md",
+        "next_steps": (
+            "Commit the changes ('git add . && git commit') to publish the new "
+            "entries via raw URLs."
+        ),
+    }
+
+
+def read_document(params: ReadDocumentInput) -> dict:
+    """Implementation of the ``read_document`` MCP tool."""
+    shelf = _resolve_shelf(params.shelf_path)
+    result = shelf.read_document(
+        params.relative_path, max_bytes=params.max_bytes, offset=params.offset
+    )
+    cfg = shelf.config
+    from docshelf_mcp.core.indexer import raw_github_url
+
+    url = raw_github_url(cfg.remote, cfg.branch, result.relative_path) if cfg.remote else ""
+    return {
+        "status": "ok",
+        "shelf_root": str(shelf.root),
+        "relative_path": result.relative_path,
+        "content": result.content,
+        "size_bytes": result.size_bytes,
+        "truncated": result.truncated,
+        "raw_url": url,
     }
 
 
@@ -284,7 +413,9 @@ def remove_document(params: RemoveDocumentInput) -> dict:
     return {
         "status": "ok",
         "shelf_root": str(shelf.root),
-        "removed_paths": [str(p.relative_to(shelf.root)) for p in result.removed_paths],
+        "removed_paths": [
+            p.relative_to(shelf.root).as_posix() for p in result.removed_paths
+        ],
         "was_split": result.was_split,
         "dry_run": result.dry_run,
         "index_path": "INDEX.md",
@@ -305,7 +436,7 @@ def rebuild_index(params: RebuildIndexInput) -> dict:
     return {
         "status": "ok",
         "shelf_root": str(shelf.root),
-        "index_path": str(index_path.relative_to(shelf.root)),
+        "index_path": index_path.relative_to(shelf.root).as_posix(),
         "document_count": len(entries),
         "category_count": len({e.category for e in entries}),
     }

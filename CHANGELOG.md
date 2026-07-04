@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `docshelf_add_directory` tool (+ `Shelf.add_directory`) — add every
+  PDF/Markdown in a folder in one call, rebuilding INDEX.md once and
+  reporting per-file success/failure. (#11)
+- `docshelf_read_document` tool (+ `Shelf.read_document`) — read a
+  document/section's content directly over MCP (with byte-range paging and
+  `docs/`-scoped path safety), so private/local shelves work end-to-end,
+  not just public ones. (#9)
 - `docshelf_remove_document` tool (+ `Shelf.remove_document`) — deletes a
   document, its split-section directory, and its `.meta.json` entry, then
   regenerates INDEX.md. Supports `dry_run`. (#4)
@@ -18,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `search` responses now include `match_mode` (`"all"` or `"any"`). (#2)
 
 ### Fixed
+- Adding a document no longer rebuilds INDEX.md twice (the tools layer no
+  longer re-runs a rebuild that `Shelf.add_document` already did). (#11)
 - The splitter is now **fence-aware**: `## ` / `# ` lines inside fenced
   code blocks (```` ``` ````/`~~~`) are no longer counted as headings,
   used as split boundaries, or demoted by the fake-H1 heuristic — so CLI
@@ -37,6 +46,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   now fails fast with a `NotAShelfError` when the resolved root is not an
   initialized shelf, instead of silently scaffolding one in the wrong
   directory. (#7)
+- `Shelf.add_document` gained a `rebuild_index` flag (default `True`) so
+  batch callers can defer the index rebuild. (#11)
+
+### CI / packaging
+- CI now tests Python 3.13 and runs a smoke job on Windows and macOS, and
+  enforces a test-coverage floor (`--cov-fail-under=85`). (#12)
+- Added Dependabot (github-actions + pip, weekly) and shipped a `py.typed`
+  marker so downstream type checkers honour the inline annotations. (#12)
 
 ## [0.2.0] — 2026-05-14
 

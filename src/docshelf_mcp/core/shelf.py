@@ -35,6 +35,7 @@ from docshelf_mcp.core.indexer import (
     DEFAULT_SUBINDEX_THRESHOLD,
     SUBINDEX_FILENAME,
     DocumentEntry,
+    _title_from_filename,
     build_index,
     scan_shelf,
     write_subindexes,
@@ -48,7 +49,7 @@ from docshelf_mcp.core.splitter import (
     write_split_files,
 )
 
-__all__ = ["Shelf", "ShelfConfig", "AddResult", "RemoveResult"]
+__all__ = ["Shelf", "ShelfConfig", "AddResult", "RemoveResult", "ReadResult"]
 
 
 SHELF_METADATA_FILENAME = ".docshelf.json"
@@ -101,6 +102,18 @@ class RemoveResult:
     removed_paths: list[Path]
     was_split: bool
     dry_run: bool
+
+
+@dataclass
+class ReadResult:
+    """Outcome of :meth:`Shelf.read_document`."""
+
+    #: Normalized path relative to the shelf root.
+    relative_path: str
+    content: str
+    size_bytes: int
+    #: True if the file is larger than the returned slice.
+    truncated: bool
 
 
 class Shelf:
@@ -189,6 +202,7 @@ class Shelf:
         description: str = "",
         split: bool = True,
         quality: Quality = "fast",
+        rebuild_index: bool = True,
     ) -> AddResult:
         """Add (or replace) a document in the shelf.
 
@@ -200,6 +214,10 @@ class Shelf:
             split: If True (default) and the document is large enough, split it
                 by H2 into a sibling subdirectory.
             quality: PDF conversion quality preset (``"fast"`` or ``"high"``).
+            rebuild_index: If True (default), regenerate INDEX.md after writing
+                the document. Batch callers can pass False and call
+                :meth:`rebuild_index` once at the end for O(N) instead of
+                O(N²) index rebuilds.
 
         Returns:
             :class:`AddResult` with the on-disk paths.
@@ -255,15 +273,133 @@ class Shelf:
         self._update_category_meta(category_dir, doc_path.name, title, description)
 
         # Auto-rebuild INDEX.md so the on-disk state and the index stay in sync.
-        # Callers that need batch performance can short-circuit by going one
-        # layer down (write files manually, then call rebuild_index once).
-        self.rebuild_index()
+        # Batch callers pass rebuild_index=False and rebuild once at the end.
+        if rebuild_index:
+            self.rebuild_index()
 
         return AddResult(
             document_path=doc_path,
             section_paths=section_paths,
             was_split=was_split,
             converted_from_pdf=converted_from_pdf,
+        )
+
+    # ------------------------------------------------------ add directory
+
+    def add_directory(
+        self,
+        source_dir: Path | str,
+        *,
+        category: str,
+        pattern: Iterable[str] = ("*.pdf", "*.md"),
+        split: bool = True,
+        quality: Quality = "fast",
+    ) -> list[dict]:
+        """Add every matching file in a directory, rebuilding the index once.
+
+        Each file's title defaults to a humanized version of its filename
+        stem. Files are processed in sorted order; a per-file failure (e.g. a
+        corrupt PDF) is captured and reported, and the remaining files are
+        still ingested.
+
+        Args:
+            source_dir: Directory to scan (non-recursive).
+            category: Category bucket for every file. Created if missing.
+            pattern: Glob patterns to include. Defaults to PDFs and Markdown.
+            split: Passed through to :meth:`add_document`.
+            quality: PDF conversion quality preset.
+
+        Returns:
+            One result dict per file, each with ``file`` and ``status``
+            (``"ok"`` or ``"error"``); ``ok`` entries carry the
+            :class:`AddResult`, ``error`` entries carry an ``error`` string.
+
+        Raises:
+            FileNotFoundError: ``source_dir`` doesn't exist or isn't a directory.
+        """
+        source_dir = Path(source_dir).expanduser().resolve()
+        if not source_dir.is_dir():
+            raise FileNotFoundError(f"Not a directory: {source_dir}")
+
+        matches: list[Path] = []
+        seen: set[Path] = set()
+        for pat in pattern:
+            for p in source_dir.glob(pat):
+                if p.is_file() and p not in seen:
+                    seen.add(p)
+                    matches.append(p)
+        matches.sort()
+
+        results: list[dict] = []
+        for path in matches:
+            title = _title_from_filename(path.stem)
+            try:
+                result = self.add_document(
+                    path,
+                    category=category,
+                    title=title,
+                    split=split,
+                    quality=quality,
+                    rebuild_index=False,  # defer — rebuild once below
+                )
+                results.append({"file": path.name, "status": "ok", "result": result})
+            except Exception as exc:  # noqa: BLE001 — one bad file must not abort the batch
+                results.append(
+                    {"file": path.name, "status": "error", "error": str(exc)}
+                )
+
+        # A single rebuild reflects every successfully-added file.
+        self.rebuild_index()
+        return results
+
+    # -------------------------------------------------------- read document
+
+    def read_document(
+        self,
+        relative_path: str,
+        *,
+        max_bytes: int = 100_000,
+        offset: int = 0,
+    ) -> ReadResult:
+        """Read a document or section file from inside the shelf's ``docs/``.
+
+        Lets an agent fetch exact content over MCP even when the shelf isn't a
+        public GitHub repo (the raw-URL trick only works for public repos).
+
+        Args:
+            relative_path: Path relative to the shelf root, as returned by
+                :meth:`search` / :func:`scan_shelf` (e.g.
+                ``"docs/routers/mikrotik/003-firewall.md"``).
+            max_bytes: Cap the returned slice so a huge datasheet can't blow up
+                the caller's context window. ``truncated`` flags when hit.
+            offset: Byte offset to start from, for paging through a big file.
+
+        Raises:
+            ValueError: ``offset``/``max_bytes`` negative, or the path resolves
+                outside the shelf's ``docs/`` directory (traversal / symlink
+                escape).
+            FileNotFoundError: No such file under ``docs/``.
+        """
+        if offset < 0 or max_bytes < 0:
+            raise ValueError("offset and max_bytes must be non-negative")
+
+        docs_root = (self.root / "docs").resolve()
+        target = (self.root / relative_path).resolve()
+        if not target.is_relative_to(docs_root):
+            raise ValueError(
+                f"Path escapes the shelf docs/ directory: {relative_path!r}"
+            )
+        if not target.is_file():
+            raise FileNotFoundError(f"Document not found under docs/: {relative_path!r}")
+
+        data = target.read_bytes()
+        size = len(data)
+        chunk = data[offset : offset + max_bytes] if max_bytes else data[offset:]
+        return ReadResult(
+            relative_path=target.relative_to(self.root).as_posix(),
+            content=chunk.decode("utf-8", errors="replace"),
+            size_bytes=size,
+            truncated=offset + len(chunk) < size,
         )
 
     # ------------------------------------------------------ remove document
@@ -322,24 +458,29 @@ class Shelf:
         return RemoveResult(removed_paths=removed, was_split=was_split, dry_run=dry_run)
 
     def _resolve_document(self, category_dir: Path, document: str) -> Path | None:
-        """Find a document file by filename, slug, or (slugified) title."""
-        names = []
-        if document.endswith(".md"):
-            names.append(document)
-        else:
-            names.append(f"{document}.md")
-        slug = slugify(document, max_len=80)
-        if slug and f"{slug}.md" not in names:
-            names.append(f"{slug}.md")
+        """Find a document file by filename, slug, or (slugified) title.
 
-        for name in names:
-            candidate = category_dir / name
-            # Reject anything that resolves outside the category dir
-            # (e.g. a crafted "../../other.md").
-            if candidate.resolve().parent != category_dir.resolve():
-                continue
-            if candidate.is_file():
-                return candidate
+        Matches against the real directory entries and returns the actual
+        on-disk path. That keeps a case-insensitive filesystem (macOS /
+        Windows) from resolving ``"Doomed.md"`` to a non-canonical path that
+        no longer matches the ``doomed.md`` key in ``.meta.json``. Because only
+        real files directly inside ``category_dir`` are eligible, a crafted
+        ``"../../other.md"`` can never resolve to anything.
+        """
+        candidates = [document if document.endswith(".md") else f"{document}.md"]
+        slug = slugify(document, max_len=80)
+        if slug:
+            candidates.append(f"{slug}.md")
+
+        existing = {p.name: p for p in category_dir.glob("*.md") if p.is_file()}
+        for name in candidates:  # exact (case-sensitive) match wins
+            if name in existing:
+                return existing[name]
+        lower = {n.lower(): p for n, p in existing.items()}
+        for name in candidates:  # then case-insensitive
+            hit = lower.get(name.lower())
+            if hit is not None:
+                return hit
         return None
 
     def _prune_category_meta(self, category_dir: Path, filename: str) -> None:

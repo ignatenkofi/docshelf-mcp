@@ -111,6 +111,66 @@ def test_split_document_gets_subindex(tmp_path: Path):
     )
 
 
+def test_add_document_rebuilds_index_exactly_once(tmp_path: Path, monkeypatch):
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    calls = {"n": 0}
+    real = shelf.rebuild_index
+    monkeypatch.setattr(shelf, "rebuild_index", lambda: (calls.__setitem__("n", calls["n"] + 1), real())[1])
+
+    shelf.add_document(FIXTURE, category="docs", title="One", split=False)
+    assert calls["n"] == 1  # not 2 — the tools layer no longer double-rebuilds
+
+
+def test_add_document_defer_rebuild(tmp_path: Path, monkeypatch):
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    calls = {"n": 0}
+    monkeypatch.setattr(shelf, "rebuild_index", lambda: calls.__setitem__("n", calls["n"] + 1))
+    shelf.add_document(FIXTURE, category="docs", title="One", split=False, rebuild_index=False)
+    assert calls["n"] == 0
+
+
+def test_add_directory_ingests_all_and_rebuilds_once(tmp_path: Path, monkeypatch):
+    src = tmp_path / "incoming"
+    src.mkdir()
+    for i in range(3):
+        (src / f"doc-{i}.md").write_text(f"# Doc {i}\n\nbody {i}\n", encoding="utf-8")
+    (src / "notes.txt").write_text("ignored", encoding="utf-8")  # not matched
+
+    shelf = Shelf(tmp_path / "s").init(name="S", remote="https://github.com/me/r")
+    calls = {"n": 0}
+    real = shelf.rebuild_index
+    monkeypatch.setattr(shelf, "rebuild_index", lambda: (calls.__setitem__("n", calls["n"] + 1), real())[1])
+
+    results = shelf.add_directory(src, category="docs")
+    assert [r["status"] for r in results] == ["ok", "ok", "ok"]
+    assert calls["n"] == 1  # single rebuild for the whole batch
+    idx = (shelf.root / "INDEX.md").read_text(encoding="utf-8")
+    assert "Doc 0" in idx and "Doc 1" in idx and "Doc 2" in idx
+
+
+def test_add_directory_reports_per_file_failure(tmp_path: Path):
+    src = tmp_path / "incoming"
+    src.mkdir()
+    (src / "good.md").write_text("# Good\n\nok\n", encoding="utf-8")
+    # A .pdf that isn't a real PDF -> conversion fails for just this file.
+    (src / "broken.pdf").write_text("not really a pdf", encoding="utf-8")
+
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    results = shelf.add_directory(src, category="docs")
+    by_file = {r["file"]: r for r in results}
+    assert by_file["good.md"]["status"] == "ok"
+    assert by_file["broken.pdf"]["status"] == "error"
+    # The good file still landed despite the sibling failure.
+    assert (shelf.root / "docs" / "docs" / "good.md").is_file()
+    assert "Good" in (shelf.root / "INDEX.md").read_text(encoding="utf-8")
+
+
+def test_add_directory_missing_dir_raises(tmp_path: Path):
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    with pytest.raises(FileNotFoundError):
+        shelf.add_directory(tmp_path / "nope", category="docs")
+
+
 def test_add_document_unsupported_type(tmp_path: Path):
     shelf = Shelf(tmp_path / "s").init(name="S")
     bad = tmp_path / "junk.txt"
@@ -193,6 +253,63 @@ def test_rebuild_index_reflects_disk(tmp_path: Path):
     assert "**One**" not in text
 
 
+def test_read_document_returns_content(tmp_path: Path):
+    shelf = Shelf(tmp_path / "s").init(name="S", remote="https://github.com/me/r")
+    shelf.add_document(FIXTURE, category="docs", title="Sample", split=False)
+
+    res = shelf.read_document("docs/docs/sample.md")
+    assert res.relative_path == "docs/docs/sample.md"
+    assert "BGP" in res.content
+    assert res.size_bytes == len((shelf.root / "docs/docs/sample.md").read_bytes())
+    assert res.truncated is False
+
+
+def test_read_document_truncation_and_offset(tmp_path: Path):
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    doc = tmp_path / "big.md"
+    doc.write_text("# T\n\n" + ("x" * 5000), encoding="utf-8")
+    shelf.add_document(doc, category="docs", title="Big One", split=False)
+    rel = "docs/docs/big-one.md"
+
+    head = shelf.read_document(rel, max_bytes=100)
+    assert len(head.content.encode("utf-8")) == 100
+    assert head.truncated is True
+
+    # Paging with an offset reads the tail without truncation.
+    total = head.size_bytes
+    tail = shelf.read_document(rel, max_bytes=total, offset=total - 10)
+    assert tail.truncated is False
+    assert len(tail.content) == 10
+
+
+def test_read_document_rejects_traversal(tmp_path: Path):
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    shelf.add_document(FIXTURE, category="docs", title="Sample", split=False)
+    # A secret outside docs/ must be unreadable.
+    (shelf.root / "secret.txt").write_text("top secret", encoding="utf-8")
+
+    with pytest.raises(ValueError):
+        shelf.read_document("docs/../secret.txt")
+    with pytest.raises(ValueError):
+        shelf.read_document("../../etc/passwd")
+    with pytest.raises(ValueError):
+        shelf.read_document("INDEX.md")  # at root, not under docs/
+
+
+def test_read_document_missing_raises(tmp_path: Path):
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    with pytest.raises(FileNotFoundError):
+        shelf.read_document("docs/docs/absent.md")
+
+
+def test_read_document_works_without_remote(tmp_path: Path):
+    # The whole point: private/local shelves with no remote still serve content.
+    shelf = Shelf(tmp_path / "s").init(name="Local")  # no remote
+    shelf.add_document(FIXTURE, category="docs", title="Sample", split=False)
+    res = shelf.read_document("docs/docs/sample.md")
+    assert "BGP" in res.content
+
+
 def test_remove_split_document_leaves_no_debris(tmp_path: Path):
     big_md = tmp_path / "big.md"
     chapter_body = "Lorem ipsum dolor sit amet. " * 500
@@ -214,6 +331,22 @@ def test_remove_split_document_leaves_no_debris(tmp_path: Path):
     assert "big-document.md" not in meta and "keeper.md" in meta
     idx = (shelf.root / "INDEX.md").read_text(encoding="utf-8")
     assert "Big Document" not in idx and "Keeper" in idx
+
+
+def test_remove_document_title_case_prunes_meta(tmp_path: Path):
+    # Regression: a title that differs from its slug only by case ("Doomed" ->
+    # doomed.md) must resolve to the canonical on-disk path so the .meta.json
+    # entry is pruned. On a case-insensitive filesystem (macOS/Windows) the old
+    # resolver returned "Doomed.md", which never matched the "doomed.md" key.
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    shelf.add_document(FIXTURE, category="docs", title="Doomed", split=False)
+    meta_path = shelf.root / "docs" / "docs" / ".meta.json"
+    assert "doomed.md" in json.loads(meta_path.read_text(encoding="utf-8"))
+
+    result = shelf.remove_document(category="docs", document="Doomed")
+    assert result.removed_paths[0].name == "doomed.md"  # canonical, not "Doomed.md"
+    # It was the only doc, so the emptied meta file is removed entirely.
+    assert not meta_path.exists()
 
 
 def test_remove_document_dry_run_touches_nothing(tmp_path: Path):

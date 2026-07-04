@@ -59,6 +59,22 @@ Add a PDF or Markdown file to the shelf.
 
 The response includes `document_path`, `section_paths`, and `next_steps` (the suggested git command).
 
+### `docshelf_add_directory`
+
+Onboard a whole folder in one call. Scans `source_dir` (non-recursively) for `patterns` (PDFs and Markdown by default), adds each file under `category` with a title derived from its filename, and rebuilds `INDEX.md` **once** for the whole batch.
+
+```jsonc
+{
+  "source_dir": "/Users/me/Downloads/manuals",
+  "category": "routers",
+  "patterns": ["*.pdf", "*.md"],
+  "split": true,
+  "quality": "fast"
+}
+```
+
+The response reports `added` and `failed` per file — one corrupt PDF is listed under `failed` without aborting the rest of the import.
+
 ### `docshelf_remove_document`
 
 Remove a document — its file, its split-section directory, and its `.meta.json` entry. `INDEX.md` is regenerated automatically. `document` accepts the filename, the slug, or the human title used at add time.
@@ -93,6 +109,20 @@ Plain-text search across every Markdown file in the shelf.
 ```
 
 Each hit includes the file's relative path, a 200-char snippet, and (if a remote is configured) the raw URL — so the model can immediately fetch the file.
+
+### `docshelf_read_document`
+
+Read a document or section's content directly over MCP — the private-shelf counterpart to the raw-URL fetch. Pass a `relative_path` from `search` / `list_documents`.
+
+```jsonc
+{
+  "relative_path": "docs/routers/mikrotik/003-firewall.md",
+  "max_bytes": 100000,  // truncate beyond this; response flags truncated=true
+  "offset": 0           // byte offset, for paging a large file
+}
+```
+
+The response returns `content`, `size_bytes`, `truncated`, and (if a remote is configured) `raw_url`. Paths that resolve outside the shelf's `docs/` directory are rejected.
 
 ### `docshelf_list_documents`
 
