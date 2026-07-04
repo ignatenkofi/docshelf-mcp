@@ -112,7 +112,9 @@ class SearchInput(_BaseInput):
     query: str = Field(
         ...,
         description="Plain-text search query. Tokens are space-split; each "
-        "must appear (case-insensitive) for a hit to count.",
+        "must appear (case-insensitive) for a hit to count. If nothing "
+        "matches all tokens, the search falls back to any-token matching "
+        "and the response marks match_mode='any'.",
         min_length=1,
         max_length=500,
     )
@@ -236,6 +238,12 @@ def search(params: SearchInput) -> dict:
     """Implementation of the ``search`` MCP tool."""
     shelf = _resolve_shelf(params.shelf_path)
     hits = shelf.search(params.query, max_results=params.max_results)
+    match_mode = "all"
+    if not hits:
+        # Over-specified query — retry requiring only some tokens, and say so.
+        hits = shelf.search(params.query, max_results=params.max_results, mode="any")
+        if hits:
+            match_mode = "any"
 
     cfg = shelf.config
     from docshelf_mcp.core.indexer import raw_github_url
@@ -249,6 +257,7 @@ def search(params: SearchInput) -> dict:
         "status": "ok",
         "shelf_root": str(shelf.root),
         "query": params.query,
+        "match_mode": match_mode,
         "match_count": len(enriched),
         "hits": enriched,
     }

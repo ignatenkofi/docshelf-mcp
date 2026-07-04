@@ -27,6 +27,7 @@ import json
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from typing import Literal
 
 from docshelf_mcp.core.converter import Quality, pdf_to_markdown
 from docshelf_mcp.core.indexer import (
@@ -288,11 +289,21 @@ class Shelf:
 
     # ------------------------------------------------------------- search
 
-    def search(self, query: str, max_results: int = 10) -> list[dict]:
+    def search(
+        self,
+        query: str,
+        max_results: int = 10,
+        *,
+        mode: Literal["all", "any"] = "all",
+    ) -> list[dict]:
         """Plain-text grep over all Markdown files in the shelf.
 
+        Query tokens are space-split and matched case-insensitively. With
+        ``mode="all"`` (default) a file must contain **every** token to count
+        as a hit; ``mode="any"`` relaxes that to at-least-one token.
+
         Returns a list of hit dicts ordered by score (descending). Each hit
-        has ``relative_path``, ``score`` (number of distinct matches),
+        has ``relative_path``, ``score`` (total number of token occurrences),
         ``snippet`` (first 200 chars around the first match), and ``size``.
         """
         if not query.strip():
@@ -312,6 +323,8 @@ class Shelf:
             except OSError:
                 continue
             lower = text.lower()
+            if mode == "all" and not all(n in lower for n in needles):
+                continue
             score = sum(lower.count(n) for n in needles)
             if score == 0:
                 continue

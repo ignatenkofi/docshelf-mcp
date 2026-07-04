@@ -104,6 +104,40 @@ def test_search_finds_keyword(tmp_path: Path):
     assert shelf.search("xyzzzznevermentioned") == []
 
 
+def test_search_requires_all_tokens(tmp_path: Path):
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    doc = tmp_path / "bridge-only.md"
+    doc.write_text("# Net\n\nbridge configuration here\n", encoding="utf-8")
+    shelf.add_document(doc, category="net", title="Bridge Only", split=False)
+
+    # Default mode="all": a doc containing only one of two tokens is no hit.
+    assert shelf.search("vlan bridge") == []
+    # Explicit mode="any" relaxes to at-least-one token.
+    any_hits = shelf.search("vlan bridge", mode="any")
+    assert len(any_hits) == 1
+
+    # A doc with both tokens matches in the default mode.
+    both = tmp_path / "both.md"
+    both.write_text("# Net\n\nvlan over bridge\n", encoding="utf-8")
+    shelf.add_document(both, category="net", title="Both", split=False)
+    all_hits = shelf.search("vlan bridge")
+    assert [h["relative_path"] for h in all_hits] == ["docs/net/both.md"]
+
+
+def test_search_ranks_by_total_occurrences(tmp_path: Path):
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    one = tmp_path / "one.md"
+    one.write_text("# A\n\nvlan bridge\n", encoding="utf-8")
+    many = tmp_path / "many.md"
+    many.write_text("# B\n\nvlan bridge vlan bridge vlan\n", encoding="utf-8")
+    shelf.add_document(one, category="net", title="One Mention", split=False)
+    shelf.add_document(many, category="net", title="Many Mentions", split=False)
+
+    hits = shelf.search("vlan bridge")
+    assert hits[0]["relative_path"] == "docs/net/many-mentions.md"
+    assert hits[0]["score"] > hits[1]["score"]
+
+
 def test_search_returns_empty_for_blank_query(tmp_path: Path):
     shelf = Shelf(tmp_path / "s").init(name="S")
     shelf.add_document(FIXTURE, category="docs", title="Sample", split=False)

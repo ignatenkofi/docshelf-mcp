@@ -73,9 +73,17 @@ def test_add_document_wrapper_then_search(tmp_path: Path):
         t.SearchInput(query="BGP", max_results=5, shelf_path=shelf_path)
     )
     assert search_out["status"] == "ok"
+    assert search_out["match_mode"] == "all"
     assert search_out["match_count"] >= 1
     hit = search_out["hits"][0]
     assert "raw.githubusercontent.com" in hit["raw_url"]
+
+    # Over-specified query: no file has both tokens -> any-token fallback.
+    fallback_out = t.search(
+        t.SearchInput(query="BGP zzznosuchtoken", max_results=5, shelf_path=shelf_path)
+    )
+    assert fallback_out["match_mode"] == "any"
+    assert fallback_out["match_count"] >= 1
 
 
 def test_list_documents_wrapper(tmp_path: Path):

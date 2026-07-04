@@ -128,9 +128,11 @@ def search(params: t.SearchInput) -> str:
     """Plain-text search across every Markdown file in the shelf.
 
     Tokens are space-split; each must appear (case-insensitive) for a hit
-    to count. Results include the relative path, a 200-char snippet, and —
-    if a GitHub remote is configured — the raw URL so the model can fetch
-    the matching file directly.
+    to count. If no file contains all tokens, the search falls back to
+    any-token matching and the response reports ``match_mode: "any"``.
+    Results include the relative path, a 200-char snippet, and — if a
+    GitHub remote is configured — the raw URL so the model can fetch the
+    matching file directly.
     """
     try:
         return _serialize(t.search(params))
