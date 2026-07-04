@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Ingest **DOCX / HTML / EPUB** in addition to PDF/Markdown, via a
+  suffix-dispatched converter with deferred imports and new optional
+  extras (`[docx]`, `[html]`, `[epub]`, `[formats]`). (#16)
+- Console script now has real CLI args: `--version`, `--help`, and
+  `--shelf PATH` (sets `DOCSHELF_ROOT`); bare invocation still starts the
+  stdio server. (#13)
 - `docshelf_doctor` tool (+ `Shelf.doctor`) — check the shelf for drift
   (stale meta entries, orphaned split dirs, out-of-sync splits, stale
   index, duplicate titles, empty categories) and optionally apply the safe
@@ -36,6 +42,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `search` responses now include `match_mode` (`"all"` or `"any"`). (#2)
 
 ### Fixed
+- Search quality: split documents return their section files instead of the
+  whole-file parent, heading/title matches rank above body-only matches,
+  snippets snap to word boundaries, and `list_documents`' category filter
+  accepts the human form (`"Research Papers"` → `research-papers`). (#14)
 - Adding a document no longer rebuilds INDEX.md twice (the tools layer no
   longer re-runs a rebuild that `Shelf.add_document` already did). (#11)
 - The splitter is now **fence-aware**: `## ` / `# ` lines inside fenced

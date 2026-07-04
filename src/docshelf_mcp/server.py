@@ -18,7 +18,9 @@ out of this file, and you can unit-test the helpers without spinning up MCP.
 
 from __future__ import annotations
 
+import argparse
 import logging
+import os
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
@@ -240,9 +242,11 @@ def search(params: t.SearchInput) -> str:
     Tokens are space-split; each must appear (case-insensitive) for a hit
     to count. If no file contains all tokens, the search falls back to
     any-token matching and the response reports ``match_mode: "any"``.
-    Results include the relative path, a 200-char snippet, and — if a
-    GitHub remote is configured — the raw URL so the model can fetch the
-    matching file directly.
+    Heading/title matches are ranked above body-only matches, and for a
+    split document the section files are returned rather than the
+    whole-file parent. Results include the relative path, a
+    word-boundary-trimmed snippet, and — if a remote is configured — the
+    fetch URL so the model can pull the matching file directly.
     """
     try:
         return _serialize(t.search(params))
@@ -293,9 +297,45 @@ def convert_pdf(params: t.ConvertPdfInput) -> str:
         return _error_response(exc, "convert_pdf")
 
 
-def main() -> None:
-    """Console-script entry point — launches the stdio server."""
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="docshelf-mcp",
+        description=(
+            "MCP server for AI-friendly document shelves. Run with no "
+            "arguments to start the stdio server (the default for Claude "
+            "Desktop / Claude Code). Tools: init_shelf, add_document, "
+            "add_directory, read_document, remove_document, rebuild_index, "
+            "doctor, search, list_documents, convert_pdf."
+        ),
+        epilog="Docs: https://github.com/ignatenkofi/docshelf-mcp",
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"docshelf-mcp {__version__}",
+    )
+    parser.add_argument(
+        "--shelf",
+        metavar="PATH",
+        help="Default shelf root for this run (sets DOCSHELF_ROOT).",
+    )
+    return parser
+
+
+def main(argv: list[str] | None = None) -> None:
+    """Console-script entry point.
+
+    With no arguments (the common case — Claude Desktop / Code spawn it bare)
+    this launches the stdio MCP server. ``--version`` / ``--help`` print and
+    exit; ``--shelf PATH`` sets the default shelf root before starting.
+    """
+    args = _build_parser().parse_args(argv)
+    if args.shelf:
+        os.environ["DOCSHELF_ROOT"] = args.shelf
+
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+    )
     logger.info("Starting docshelf-mcp %s", __version__)
     mcp.run()
 

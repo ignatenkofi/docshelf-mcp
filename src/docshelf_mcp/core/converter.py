@@ -18,13 +18,31 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-__all__ = ["pdf_to_markdown", "Quality"]
+__all__ = [
+    "pdf_to_markdown",
+    "source_to_markdown",
+    "Quality",
+    "ConversionError",
+    "SUPPORTED_INPUT_SUFFIXES",
+]
 
 Quality = Literal["fast", "high"]
 
+#: Input suffixes :func:`source_to_markdown` can ingest. Markdown and PDF work
+#: out of the box; DOCX / HTML / EPUB need the matching optional extra.
+SUPPORTED_INPUT_SUFFIXES = (
+    ".md",
+    ".markdown",
+    ".pdf",
+    ".docx",
+    ".html",
+    ".htm",
+    ".epub",
+)
+
 
 class ConversionError(RuntimeError):
-    """Raised when PDF conversion fails or a required engine is missing."""
+    """Raised when conversion fails or a required engine is missing."""
 
 
 def _convert_fast(pdf_path: Path) -> str:
@@ -86,3 +104,91 @@ def pdf_to_markdown(pdf_path: Path | str, quality: Quality = "fast") -> str:
     if quality == "high":
         return _convert_high(pdf_path)
     raise ConversionError(f"Unknown quality preset: {quality!r}")
+
+
+def _convert_docx(path: Path) -> str:
+    try:
+        import mammoth  # type: ignore[import-not-found]
+    except ImportError as exc:
+        raise ConversionError(
+            "mammoth is required for .docx conversion but is not installed. "
+            "Install it with: pip install 'docshelf-mcp[docx]'"
+        ) from exc
+    with path.open("rb") as fh:
+        return mammoth.convert_to_markdown(fh).value
+
+
+def _html_to_markdown(html: str) -> str:
+    try:
+        from markdownify import markdownify  # type: ignore[import-not-found]
+    except ImportError as exc:
+        raise ConversionError(
+            "markdownify is required for .html/.epub conversion but is not "
+            "installed. Install it with: pip install 'docshelf-mcp[html]' "
+            "(or '[epub]')"
+        ) from exc
+    return markdownify(html, heading_style="ATX")
+
+
+def _convert_html(path: Path) -> str:
+    return _html_to_markdown(path.read_text(encoding="utf-8", errors="replace"))
+
+
+def _convert_epub(path: Path) -> str:
+    try:
+        import ebooklib  # type: ignore[import-not-found]
+        from ebooklib import epub  # type: ignore[import-not-found]
+    except ImportError as exc:
+        raise ConversionError(
+            "ebooklib is required for .epub conversion but is not installed. "
+            "Install it with: pip install 'docshelf-mcp[epub]'"
+        ) from exc
+    book = epub.read_epub(str(path))
+    parts: list[str] = []
+    for item in book.get_items():
+        if item.get_type() == ebooklib.ITEM_DOCUMENT:
+            html = item.get_content().decode("utf-8", errors="replace")
+            parts.append(_html_to_markdown(html))
+    return "\n\n".join(p for p in parts if p.strip())
+
+
+#: Suffix → converter. Markdown is read verbatim; the rest are extracted.
+_CONVERTERS = {
+    ".pdf": None,  # handled specially (carries the quality preset)
+    ".docx": _convert_docx,
+    ".html": _convert_html,
+    ".htm": _convert_html,
+    ".epub": _convert_epub,
+}
+
+
+def source_to_markdown(source: Path | str, quality: Quality = "fast") -> str:
+    """Convert any supported source file to (uncleaned) Markdown.
+
+    Dispatches by suffix: ``.md``/``.markdown`` are read as-is, ``.pdf`` uses
+    the PDF engines, and ``.docx``/``.html``/``.htm``/``.epub`` use their
+    optional backends (imported lazily). Run
+    :func:`docshelf_mcp.core.splitter.clean_markdown` on the result.
+
+    Raises:
+        FileNotFoundError: ``source`` doesn't exist.
+        ConversionError: Unsupported suffix, or the backend is missing/fails.
+    """
+    source = Path(source).expanduser().resolve()
+    if not source.exists():
+        raise FileNotFoundError(f"Source not found: {source}")
+
+    suffix = source.suffix.lower()
+    if suffix in (".md", ".markdown"):
+        return source.read_text(encoding="utf-8", errors="replace")
+    if suffix == ".pdf":
+        return pdf_to_markdown(source, quality=quality)
+    converter = _CONVERTERS.get(suffix)
+    if converter is None:
+        raise ConversionError(
+            f"Unsupported source type {suffix or '<no extension>'!r}. "
+            f"Supported: {', '.join(SUPPORTED_INPUT_SUFFIXES)}. "
+            "DOCX/HTML/EPUB need the matching extra, e.g. "
+            "pip install 'docshelf-mcp[formats]'."
+        )
+    return converter(source)

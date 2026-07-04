@@ -203,6 +203,24 @@ def test_add_document_unsupported_type(tmp_path: Path):
         shelf.add_document(bad, category="x", title="No")
 
 
+def test_add_html_document(tmp_path: Path):
+    pytest.importorskip("markdownify")
+    page = tmp_path / "manual.html"
+    page.write_text(
+        "<html><body><h1>Router Manual</h1><p>VLAN configuration notes.</p>"
+        "</body></html>",
+        encoding="utf-8",
+    )
+    shelf = Shelf(tmp_path / "s").init(name="S", remote="https://github.com/me/r")
+    result = shelf.add_document(page, category="net", title="Router Manual", split=False)
+    assert result.document_path.is_file()
+    assert result.converted_from_pdf is False
+    body = result.document_path.read_text(encoding="utf-8")
+    assert "VLAN configuration notes" in body
+    # Searchable through the normal pipeline.
+    assert shelf.search("VLAN")
+
+
 def test_search_finds_keyword(tmp_path: Path):
     shelf = Shelf(tmp_path / "s").init(name="S")
     shelf.add_document(FIXTURE, category="docs", title="Sample", split=False)
@@ -247,6 +265,50 @@ def test_search_ranks_by_total_occurrences(tmp_path: Path):
     hits = shelf.search("vlan bridge")
     assert hits[0]["relative_path"] == "docs/net/many-mentions.md"
     assert hits[0]["score"] > hits[1]["score"]
+
+
+def test_search_boosts_heading_matches(tmp_path: Path):
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    body = tmp_path / "body.md"
+    body.write_text("# Alpha\n\nvlan appears once in the body text\n", encoding="utf-8")
+    head = tmp_path / "head.md"
+    head.write_text("# Vlan Guide\n\nunrelated body content\n", encoding="utf-8")
+    shelf.add_document(body, category="net", title="Body Only", split=False)
+    shelf.add_document(head, category="net", title="Vlan Guide", split=False)
+
+    hits = shelf.search("vlan")
+    # The heading match ranks first even though both have one body/heading hit.
+    assert hits[0]["relative_path"].endswith("vlan-guide.md")
+    assert hits[0]["score"] > hits[1]["score"]
+
+
+def test_search_prefers_sections_over_split_parent(tmp_path: Path):
+    filler = "searchable lorem ipsum dolor sit amet consectetur. " * 700
+    big = tmp_path / "big.md"
+    big.write_text(
+        "# Big\n\n## Alpha\n\n" + filler + "\n\n## Beta\n\n" + filler + "\n",
+        encoding="utf-8",
+    )
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    result = shelf.add_document(big, category="docs", title="Big Doc", split=True)
+    assert result.was_split
+
+    paths = [h["relative_path"] for h in shelf.search("searchable")]
+    assert "docs/docs/big-doc.md" not in paths  # whole-file parent skipped
+    assert any("/big-doc/" in p for p in paths)  # sections present
+
+
+def test_search_snippet_trims_and_collapses(tmp_path: Path):
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    doc = tmp_path / "d.md"
+    doc.write_text(
+        "# T\n\nleadingword     NEEDLEZONE     trailingword plus more text after it\n",
+        encoding="utf-8",
+    )
+    shelf.add_document(doc, category="docs", title="D", split=False)
+    snip = shelf.search("needlezone")[0]["snippet"]
+    assert "  " not in snip  # runs of whitespace collapsed
+    assert "NEEDLEZONE" in snip
 
 
 def test_search_returns_empty_for_blank_query(tmp_path: Path):

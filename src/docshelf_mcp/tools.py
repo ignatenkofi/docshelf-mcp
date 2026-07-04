@@ -94,7 +94,9 @@ class AddDocumentInput(_BaseInput):
 
     source_path: str = Field(
         ...,
-        description="Absolute path to the source .pdf or .md file on disk.",
+        description="Absolute path to the source file. Supported: .md, .pdf, "
+        ".docx, .html/.htm, .epub (DOCX/HTML/EPUB need the matching extra, "
+        "e.g. pip install 'docshelf-mcp[formats]').",
         min_length=1,
     )
     category: str = Field(
@@ -538,9 +540,15 @@ def list_documents(params: ListDocumentsInput) -> dict:
     entries = shelf.scan()
     cfg = shelf.config
 
+    # Match the filter against the on-disk category slug, so the human form
+    # ("Research Papers") finds the "research-papers" directory.
+    from docshelf_mcp.core.slugify import slugify
+
+    filter_slug = slugify(params.category, max_len=80) if params.category else None
+
     grouped: dict[str, list[dict]] = {}
     for e in entries:
-        if params.category and e.category != params.category:
+        if filter_slug and e.category != filter_slug:
             continue
         url = cfg.url_for(e.relative_path)
         grouped.setdefault(e.category, []).append(

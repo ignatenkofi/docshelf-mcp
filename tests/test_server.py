@@ -6,6 +6,7 @@ wrappers in `docshelf_mcp.tools` are end-to-end callable.
 """
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -188,6 +189,23 @@ def test_remove_document_wrapper(tmp_path: Path):
     assert "Doomed" not in (Path(shelf_path) / "INDEX.md").read_text(encoding="utf-8")
 
 
+def test_list_documents_category_filter_accepts_human_form(tmp_path: Path):
+    shelf_path = str(tmp_path / "s")
+    t.init_shelf(t.InitShelfInput(shelf_path=shelf_path, name="T"))
+    t.add_document(
+        t.AddDocumentInput(
+            source_path=str(FIXTURE), category="research-papers", title="P",
+            split=False, shelf_path=shelf_path,
+        )
+    )
+    # The human display form must resolve to the on-disk slug directory.
+    out = t.list_documents(
+        t.ListDocumentsInput(category="Research Papers", shelf_path=shelf_path)
+    )
+    assert out["total_documents"] == 1
+    assert "research-papers" in out["categories"]
+
+
 def test_list_documents_wrapper(tmp_path: Path):
     shelf_path = str(tmp_path / "s")
     t.init_shelf(
@@ -358,6 +376,45 @@ def test_input_validation_rejects_empty_title():
 
     with pytest.raises(ValidationError):
         t.AddDocumentInput(source_path="x", category="y", title="")
+
+
+def test_cli_version_prints_and_exits(capsys):
+    import docshelf_mcp
+    from docshelf_mcp.server import main
+
+    with pytest.raises(SystemExit) as exc:
+        main(["--version"])
+    assert exc.value.code == 0
+    assert docshelf_mcp.__version__ in capsys.readouterr().out
+
+
+def test_cli_help_prints_and_exits(capsys):
+    from docshelf_mcp.server import main
+
+    with pytest.raises(SystemExit) as exc:
+        main(["--help"])
+    assert exc.value.code == 0
+    assert "stdio server" in capsys.readouterr().out
+
+
+def test_cli_shelf_sets_env_then_runs(monkeypatch, tmp_path):
+    from docshelf_mcp import server
+
+    monkeypatch.delenv("DOCSHELF_ROOT", raising=False)
+    ran = {"v": False}
+    monkeypatch.setattr(server.mcp, "run", lambda: ran.__setitem__("v", True))
+    server.main(["--shelf", str(tmp_path)])
+    assert os.environ["DOCSHELF_ROOT"] == str(tmp_path)
+    assert ran["v"] is True  # bare-ish invocation still starts the server
+
+
+def test_cli_no_args_starts_server(monkeypatch):
+    from docshelf_mcp import server
+
+    ran = {"v": False}
+    monkeypatch.setattr(server.mcp, "run", lambda: ran.__setitem__("v", True))
+    server.main([])  # backward compat: no args -> start server
+    assert ran["v"] is True
 
 
 def test_tools_to_json_is_human_readable():

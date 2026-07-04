@@ -24,12 +24,17 @@ disk state.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Literal
 
-from docshelf_mcp.core.converter import Quality, pdf_to_markdown
+from docshelf_mcp.core.converter import (
+    SUPPORTED_INPUT_SUFFIXES,
+    Quality,
+    source_to_markdown,
+)
 from docshelf_mcp.core.indexer import (
     DEFAULT_PREAMBLE,
     DEFAULT_SUBINDEX_THRESHOLD,
@@ -63,6 +68,25 @@ __all__ = [
 
 
 SHELF_METADATA_FILENAME = ".docshelf.json"
+
+#: Extra weight per query-token occurrence found on a heading line, so a
+#: document whose title/chapter names the query ranks above body-only matches.
+_HEADING_BOOST = 5
+
+
+def _make_snippet(text: str, pos: int, width: int = 200) -> str:
+    """Return a whitespace-collapsed excerpt around ``pos``, snapped to word
+    boundaries and marked with ellipses when truncated."""
+    start = max(pos - width // 3, 0)
+    end = min(pos + (2 * width) // 3, len(text))
+    frag = text[start:end]
+    # Drop partial words at the trimmed edges.
+    if start > 0 and " " in frag:
+        frag = frag[frag.find(" ") + 1 :]
+    if end < len(text) and " " in frag:
+        frag = frag[: frag.rfind(" ")]
+    frag = re.sub(r"\s+", " ", frag).strip()
+    return f"{'…' if start > 0 else ''}{frag}{'…' if end < len(text) else ''}"
 
 
 @dataclass
@@ -270,16 +294,17 @@ class Shelf:
 
         Raises:
             FileNotFoundError: ``source`` doesn't exist.
-            ValueError: ``source`` is not a .pdf or .md file.
+            ValueError: ``source`` is not a supported input type.
         """
         source = Path(source).expanduser().resolve()
         if not source.exists():
             raise FileNotFoundError(f"Source not found: {source}")
 
         suffix = source.suffix.lower()
-        if suffix not in {".pdf", ".md"}:
+        if suffix not in SUPPORTED_INPUT_SUFFIXES:
             raise ValueError(
-                f"Unsupported source type {suffix!r}; expected .pdf or .md"
+                f"Unsupported source type {suffix!r}; expected one of "
+                f"{', '.join(SUPPORTED_INPUT_SUFFIXES)}"
             )
 
         category_slug = slugify(category, max_len=80) or "uncategorized"
@@ -289,12 +314,8 @@ class Shelf:
         doc_stem = slugify(title, max_len=80) or "document"
         doc_path = category_dir / f"{doc_stem}.md"
 
-        if suffix == ".pdf":
-            raw_md = pdf_to_markdown(source, quality=quality)
-            converted_from_pdf = True
-        else:
-            raw_md = source.read_text(encoding="utf-8", errors="replace")
-            converted_from_pdf = False
+        raw_md = source_to_markdown(source, quality=quality)
+        converted_from_pdf = suffix == ".pdf"
 
         cleaned = clean_markdown(raw_md)
         if not cleaned.lstrip().startswith("#"):
@@ -777,8 +798,12 @@ class Shelf:
         as a hit; ``mode="any"`` relaxes that to at-least-one token.
 
         Returns a list of hit dicts ordered by score (descending). Each hit
-        has ``relative_path``, ``score`` (total number of token occurrences),
-        ``snippet`` (first 200 chars around the first match), and ``size``.
+        has ``relative_path``, ``score`` (occurrence count, with heading matches
+        weighted higher), ``snippet`` (a word-boundary-trimmed excerpt around
+        the first match), and ``size``.
+
+        For a split document the whole-file parent is skipped in favour of its
+        section files — they are the targeted units an agent should fetch.
         """
         if not query.strip():
             return []
@@ -795,6 +820,11 @@ class Shelf:
             if md_file.name == SUBINDEX_FILENAME:
                 # Navigation pages would only echo the titles back as noise.
                 continue
+            # Skip a split document's whole-file parent — its content is fully
+            # covered by the section files, which are the better fetch targets.
+            split_dir = md_file.parent / md_file.stem
+            if split_dir.is_dir() and any(split_dir.glob("*.md")):
+                continue
             try:
                 text = md_file.read_text(encoding="utf-8", errors="replace")
             except OSError:
@@ -802,17 +832,23 @@ class Shelf:
             lower = text.lower()
             if mode == "all" and not all(n in lower for n in needles):
                 continue
-            score = sum(lower.count(n) for n in needles)
-            if score == 0:
+            base = sum(lower.count(n) for n in needles)
+            if base == 0:
                 continue
+            # Boost matches that land on a heading line (title / ## chapter).
+            heading_hits = sum(
+                line.count(n)
+                for line in lower.splitlines()
+                if line.lstrip().startswith("#")
+                for n in needles
+            )
+            score = base + _HEADING_BOOST * heading_hits
             first_pos = min((lower.find(n) for n in needles if n in lower), default=0)
-            snippet_start = max(first_pos - 80, 0)
-            snippet = text[snippet_start : snippet_start + 200].replace("\n", " ")
             hits.append(
                 {
-                    "relative_path": str(md_file.relative_to(self.root).as_posix()),
+                    "relative_path": md_file.relative_to(self.root).as_posix(),
                     "score": score,
-                    "snippet": snippet,
+                    "snippet": _make_snippet(text, first_pos),
                     "size": md_file.stat().st_size,
                 }
             )
