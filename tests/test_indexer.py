@@ -87,6 +87,18 @@ def test_raw_github_url_missing_repo_returns_empty():
     assert raw_github_url("https://github.com/", "main", "x.md") == ""
 
 
+def test_raw_github_url_ignores_query_and_fragment():
+    # A pasted browser URL must not fold ?query / #fragment into the repo name.
+    assert (
+        raw_github_url("https://github.com/me/myrepo?tab=readme", "main", "x.md")
+        == "https://raw.githubusercontent.com/me/myrepo/main/x.md"
+    )
+    assert (
+        raw_github_url("https://github.com/me/my.repo#readme", "main", "x.md")
+        == "https://raw.githubusercontent.com/me/my.repo/main/x.md"
+    )
+
+
 def test_raw_github_url_encodes_path_segments():
     assert (
         raw_github_url("https://github.com/me/r", "main", "docs/my file.md")

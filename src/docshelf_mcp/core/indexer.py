@@ -86,9 +86,11 @@ def raw_github_url(remote: str, branch: str, relative_path: str) -> str:
 
 
 # owner and repo are each a run of non-slash, non-space characters — so a repo
-# name may legitimately contain dots (``my.repo``). A trailing ``.git`` (clone
-# suffix) or a trailing prose dot is stripped afterwards.
-_GITHUB_REMOTE = re.compile(r"github\.com[:/](?P<owner>[^/\s]+)/(?P<repo>[^/\s]+)")
+# name may legitimately contain dots (``my.repo``). The repo capture also stops
+# at ``?``/``#`` so a pasted browser URL (``…/repo?tab=readme``) doesn't fold the
+# query/fragment into the repo name. A trailing ``.git`` (clone suffix) or a
+# trailing prose dot is stripped afterwards.
+_GITHUB_REMOTE = re.compile(r"github\.com[:/](?P<owner>[^/\s]+)/(?P<repo>[^/\s?#]+)")
 
 
 def _parse_owner_repo(remote: str) -> tuple[str, str] | None:
