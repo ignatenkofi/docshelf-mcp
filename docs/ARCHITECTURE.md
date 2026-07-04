@@ -85,6 +85,7 @@ FastMCP auto-generates input schemas from Pydantic models — that's the modern 
 - **Different conversion engines.** Add a branch in `core.converter:pdf_to_markdown`.
 - **Different splitting strategies** (size-based, semantic, …). The `splitter` module exposes `should_split` and `split_by_h2` as orthogonal building blocks.
 - **Different index renderers.** `core.indexer:build_index` is a pure function from `(name, entries, config) → str`. Subclass / replace it to emit JSON, HTML, an Astro site, etc.
+- **Different URL providers.** `core.indexer:shelf_url` maps a shelf-relative path to a fetch URL per the configured `provider` (`github` / `gitlab` / `gitea` / `custom` / `none`). Add a branch there (or use `provider="custom"` with a `url_template`) to target a new host.
 - **Embedding search.** Drop in a vector index next to the grep search. Same `Shelf.search` signature.
 
 ## Non-goals

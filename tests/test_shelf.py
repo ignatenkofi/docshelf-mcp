@@ -171,6 +171,30 @@ def test_add_directory_missing_dir_raises(tmp_path: Path):
         shelf.add_directory(tmp_path / "nope", category="docs")
 
 
+def test_add_document_surfaces_section_warnings(tmp_path: Path):
+    # A big doc with one clean chapter and one junk (unit-fragment) heading.
+    filler = "Body sentence for padding purposes here. " * 700
+    big = tmp_path / "big.md"
+    big.write_text(
+        "# Manual\n\n"
+        "## Overview\n\n" + filler + "\n\n"
+        "## 2.5 Gb/s. Full duplex operation is supported.\n\n" + filler + "\n",
+        encoding="utf-8",
+    )
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    result = shelf.add_document(big, category="net", title="Manual", split=True)
+    assert result.was_split
+    rules = {w.rule for w in result.warnings}
+    assert "unit-fragment" in rules
+    # The clean "Overview" heading is not flagged.
+    assert all("Overview" not in w.heading for w in result.warnings)
+
+    # lint_shelf re-derives the same warnings from disk.
+    disk = shelf.lint_shelf()
+    key = next(iter(disk))
+    assert any(w.rule == "unit-fragment" for w in disk[key])
+
+
 def test_add_document_unsupported_type(tmp_path: Path):
     shelf = Shelf(tmp_path / "s").init(name="S")
     bad = tmp_path / "junk.txt"
@@ -373,6 +397,66 @@ def test_remove_document_missing_raises(tmp_path: Path):
         shelf.remove_document(category="docs", document="../../INDEX.md")
 
 
+def test_doctor_clean_shelf_has_no_findings(tmp_path: Path):
+    shelf = Shelf(tmp_path / "s").init(name="S", remote="https://github.com/me/r")
+    shelf.add_document(FIXTURE, category="docs", title="Sample", split=False)
+    assert shelf.doctor() == []
+
+
+def test_doctor_detects_and_fixes_stale_meta_and_orphan(tmp_path: Path):
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    shelf.add_document(FIXTURE, category="docs", title="Keeper", split=False)
+    cat = shelf.root / "docs" / "docs"
+
+    # Inject drift: a stale meta entry + an orphaned split dir.
+    meta = json.loads((cat / ".meta.json").read_text())
+    meta["ghost.md"] = {"title": "Ghost", "description": ""}
+    (cat / ".meta.json").write_text(json.dumps(meta), encoding="utf-8")
+    (cat / "orphan").mkdir()
+    (cat / "orphan" / "001-x.md").write_text("## x\n", encoding="utf-8")
+
+    report = shelf.doctor()
+    rules = {f.rule for f in report}
+    assert "stale-meta-entry" in rules and "orphaned-split-dir" in rules
+    assert all(not f.fixed for f in report)  # read-only by default
+
+    fixed = shelf.doctor(fix=True)
+    assert any(f.rule == "stale-meta-entry" and f.fixed for f in fixed)
+    assert any(f.rule == "orphaned-split-dir" and f.fixed for f in fixed)
+    # Debris is gone; a re-run is clean of those two rules.
+    assert not (cat / "orphan").exists()
+    assert "ghost.md" not in json.loads((cat / ".meta.json").read_text())
+    after = {f.rule for f in shelf.doctor()}
+    assert "stale-meta-entry" not in after and "orphaned-split-dir" not in after
+
+
+def test_doctor_detects_stale_index(tmp_path: Path):
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    shelf.add_document(FIXTURE, category="docs", title="One", split=False)
+    # Corrupt INDEX.md so it no longer matches the shelf.
+    (shelf.root / "INDEX.md").write_text("# stale\n", encoding="utf-8")
+
+    assert any(f.rule == "stale-index" for f in shelf.doctor())
+    shelf.doctor(fix=True)
+    assert not any(f.rule == "stale-index" for f in shelf.doctor())
+
+
+def test_doctor_detects_empty_category_and_duplicate_title(tmp_path: Path):
+    shelf = Shelf(tmp_path / "s").init(name="S", default_categories=["hollow"])
+    shelf.add_document(FIXTURE, category="docs", title="Dup", split=False)
+    # A second document whose title collides after slugify differences —
+    # force the same display title via a distinct filename + meta override.
+    cat = shelf.root / "docs" / "docs"
+    (cat / "dup-two.md").write_text("# Dup\n\nbody\n", encoding="utf-8")
+    meta = json.loads((cat / ".meta.json").read_text())
+    meta["dup-two.md"] = {"title": "Dup", "description": ""}
+    (cat / ".meta.json").write_text(json.dumps(meta), encoding="utf-8")
+
+    rules = {f.rule for f in shelf.doctor()}
+    assert "empty-category" in rules  # the pre-created 'hollow' category
+    assert "duplicate-title" in rules
+
+
 def test_shelf_without_remote_still_works(tmp_path: Path):
     shelf = Shelf(tmp_path / "s").init(name="Local Shelf")  # no remote
     shelf.add_document(FIXTURE, category="docs", title="Sample", split=False)
@@ -380,3 +464,36 @@ def test_shelf_without_remote_still_works(tmp_path: Path):
     assert "Sample" in text
     # No raw URL in the entry (because remote is empty).
     assert "raw.githubusercontent.com" not in text
+
+
+def test_none_provider_offline_shelf_has_relative_links(tmp_path: Path):
+    shelf = Shelf(tmp_path / "s").init(name="Offline", provider="none")
+    shelf.add_document(FIXTURE, category="docs", title="Sample", split=False)
+    text = (shelf.root / "INDEX.md").read_text()
+    # A navigable relative link, not a bare label.
+    assert "(docs/docs/sample.md)" in text
+    assert "raw.githubusercontent.com" not in text
+
+
+def test_gitlab_provider_enriches_search_and_read(tmp_path: Path):
+    from docshelf_mcp import tools as t
+
+    shelf_path = str(tmp_path / "s")
+    t.init_shelf(
+        t.InitShelfInput(
+            shelf_path=shelf_path,
+            name="GL",
+            github_remote="https://gitlab.com/grp/proj",
+            provider="gitlab",
+        )
+    )
+    t.add_document(
+        t.AddDocumentInput(
+            source_path=str(FIXTURE), category="docs", title="Sample",
+            split=False, shelf_path=shelf_path,
+        )
+    )
+    hit = t.search(t.SearchInput(query="BGP", shelf_path=shelf_path))["hits"][0]
+    assert hit["raw_url"] == (
+        "https://gitlab.com/grp/proj/-/raw/main/docs/docs/sample.md"
+    )

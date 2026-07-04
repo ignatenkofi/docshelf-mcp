@@ -4,6 +4,7 @@ from pathlib import Path
 
 from docshelf_mcp.core.splitter import (
     clean_markdown,
+    lint_sections,
     should_split,
     split_by_h2,
     write_split_files,
@@ -196,3 +197,51 @@ def test_fake_h1_outside_fence_still_demoted():
     cleaned = clean_markdown("# 0 X chain=forward action=accept\n# Real Heading\n")
     assert "    0 X chain=forward" in cleaned
     assert "# Real Heading" in cleaned
+
+
+# ------------------------------------------------------------- section lint
+
+
+def _lint(*titles):
+    sections = [(t, f"## {t}\n\nbody\n") for t in titles]
+    return lint_sections(sections)
+
+
+def test_lint_flags_toc_leak():
+    w = _lint("5.6 LTR ........ 42")
+    assert [x.rule for x in w] == ["toc-leak"]
+    assert w[0].index == 1 and w[0].heading == "5.6 LTR ........ 42"
+
+
+def test_lint_flags_unit_fragment():
+    w = _lint("2.5 Gb/s. Full duplex operation is supported.")
+    assert w[0].rule == "unit-fragment"
+
+
+def test_lint_flags_table_residue():
+    assert _lint("Voltage | Current | Power")[0].rule == "table-residue"
+    assert _lint("3.3 5.0 12.0 24.0")[0].rule == "table-residue"
+
+
+def test_lint_flags_near_duplicate():
+    w = _lint("Firewall", "Bridging", "firewall")
+    dups = [x for x in w if x.rule == "near-duplicate"]
+    assert len(dups) == 1
+    assert dups[0].index == 3 and "001" in dups[0].detail
+
+
+def test_lint_clean_headings_produce_no_warnings():
+    # Legit chapter titles, including a section-numbered one, stay silent.
+    assert _lint("Introduction", "2.5 Bridging", "Firewall Rules", "Appendix A") == []
+
+
+def test_lint_skips_preamble_and_aligns_index():
+    sections = [
+        ("preamble", "intro\n"),
+        ("Real Chapter", "## Real Chapter\n\nx\n"),
+        ("9.9 Gb/s. sentence here.", "## 9.9 ...\n"),
+    ]
+    w = lint_sections(sections)
+    assert len(w) == 1
+    # Index 3 -> matches the NNN=003 the writer would assign.
+    assert w[0].index == 3 and w[0].rule == "unit-fragment"

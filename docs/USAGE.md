@@ -57,7 +57,7 @@ Add a PDF or Markdown file to the shelf.
 }
 ```
 
-The response includes `document_path`, `section_paths`, and `next_steps` (the suggested git command).
+The response includes `document_path`, `section_paths`, and `next_steps` (the suggested git command). When a document is split, the response also carries `warnings` (+ `warning_count`) — heuristic flags for section headings that look like PDF-extraction artefacts (`toc-leak`, `unit-fragment`, `table-residue`, `near-duplicate`). These are detection only; nothing is rewritten. `rebuild_index` reports the same warnings across the whole shelf.
 
 ### `docshelf_add_directory`
 
@@ -96,6 +96,18 @@ Regenerate `INDEX.md` from the on-disk state. Use after manual edits to `docs/` 
 ```jsonc
 {}
 ```
+
+### `docshelf_doctor`
+
+Check the shelf for drift and optionally apply the safe fixes. Read-only by default.
+
+```jsonc
+{
+  "fix": false  // true = prune stale meta entries, delete orphaned split dirs, rebuild INDEX
+}
+```
+
+Reports `findings` (each with `rule`, `severity`, `path`, `detail`, `suggested_fix`, `fixed`) plus a `by_rule` summary. Rules: `stale-meta-entry`, `orphaned-split-dir`, `split-out-of-sync`, `stale-index`, `duplicate-title`, `empty-category`, `corrupt-meta`. Findings are sorted so runs diff cleanly. With `fix=true`, only the safe subset is applied; everything else stays report-only.
 
 ### `docshelf_search`
 

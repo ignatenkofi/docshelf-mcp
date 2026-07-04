@@ -32,6 +32,7 @@ __all__ = [
     "ReadDocumentInput",
     "RemoveDocumentInput",
     "RebuildIndexInput",
+    "DoctorInput",
     "SearchInput",
     "ListDocumentsInput",
     "ConvertPdfInput",
@@ -42,6 +43,7 @@ __all__ = [
     "read_document",
     "remove_document",
     "rebuild_index",
+    "doctor",
     "search",
     "list_documents",
     "convert_pdf",
@@ -225,6 +227,17 @@ class RebuildIndexInput(_BaseInput):
     )
 
 
+class DoctorInput(_BaseInput):
+    fix: bool = Field(
+        default=False,
+        description="Apply the safe fixes (prune stale meta entries, delete "
+        "orphaned split dirs, rebuild INDEX). Other findings stay report-only.",
+    )
+    shelf_path: str | None = Field(
+        default=None, description="Path to the shelf root directory."
+    )
+
+
 class SearchInput(_BaseInput):
     query: str = Field(
         ...,
@@ -304,9 +317,25 @@ class InitShelfInput(_BaseInput):
         min_length=1,
         max_length=100,
     )
+    provider: str = Field(
+        default="github",
+        description="URL provider for generated links: 'github' (default), "
+        "'gitlab', 'gitea', 'custom' (uses url_template), or 'none' (relative "
+        "links for offline/local shelves).",
+    )
+    url_template: str = Field(
+        default="",
+        description="For provider='custom': URL template with {owner}, {repo}, "
+        "{branch}, {path} placeholders. Covers S3, R2, or any static host.",
+        max_length=500,
+    )
 
 
 # --------------------------------------------------------------- wrappers
+
+
+def _warning_dict(w) -> dict:
+    return {"index": w.index, "heading": w.heading, "rule": w.rule, "detail": w.detail}
 
 
 def add_document(params: AddDocumentInput) -> dict:
@@ -331,6 +360,8 @@ def add_document(params: AddDocumentInput) -> dict:
         "was_split": result.was_split,
         "section_count": len(result.section_paths),
         "converted_from_pdf": result.converted_from_pdf,
+        "warning_count": len(result.warnings),
+        "warnings": [_warning_dict(w) for w in result.warnings],
         "index_path": "INDEX.md",
         "next_steps": (
             f"Commit the changes ('git add . && git commit -m \"docs: add {params.title}\"') "
@@ -388,9 +419,7 @@ def read_document(params: ReadDocumentInput) -> dict:
         params.relative_path, max_bytes=params.max_bytes, offset=params.offset
     )
     cfg = shelf.config
-    from docshelf_mcp.core.indexer import raw_github_url
-
-    url = raw_github_url(cfg.remote, cfg.branch, result.relative_path) if cfg.remote else ""
+    url = cfg.url_for(result.relative_path)
     return {
         "status": "ok",
         "shelf_root": str(shelf.root),
@@ -433,12 +462,47 @@ def rebuild_index(params: RebuildIndexInput) -> dict:
     shelf = _resolve_shelf(params.shelf_path)
     index_path = shelf.rebuild_index()
     entries = shelf.scan()
+    warnings = [
+        {"document": doc, **_warning_dict(w)}
+        for doc, ws in shelf.lint_shelf().items()
+        for w in ws
+    ]
     return {
         "status": "ok",
         "shelf_root": str(shelf.root),
         "index_path": index_path.relative_to(shelf.root).as_posix(),
         "document_count": len(entries),
         "category_count": len({e.category for e in entries}),
+        "warning_count": len(warnings),
+        "warnings": warnings,
+    }
+
+
+def doctor(params: DoctorInput) -> dict:
+    """Implementation of the ``doctor`` MCP tool."""
+    shelf = _resolve_shelf(params.shelf_path)
+    findings = shelf.doctor(fix=params.fix)
+    by_rule: dict[str, int] = {}
+    for f in findings:
+        by_rule[f.rule] = by_rule.get(f.rule, 0) + 1
+    return {
+        "status": "ok",
+        "shelf_root": str(shelf.root),
+        "fix": params.fix,
+        "finding_count": len(findings),
+        "fixed_count": sum(1 for f in findings if f.fixed),
+        "by_rule": by_rule,
+        "findings": [
+            {
+                "rule": f.rule,
+                "severity": f.severity,
+                "path": f.path,
+                "detail": f.detail,
+                "suggested_fix": f.suggested_fix,
+                "fixed": f.fixed,
+            }
+            for f in findings
+        ],
     }
 
 
@@ -454,12 +518,9 @@ def search(params: SearchInput) -> dict:
             match_mode = "any"
 
     cfg = shelf.config
-    from docshelf_mcp.core.indexer import raw_github_url
-
     enriched = []
     for h in hits:
-        url = raw_github_url(cfg.remote, cfg.branch, h["relative_path"]) if cfg.remote else ""
-        enriched.append({**h, "raw_url": url})
+        enriched.append({**h, "raw_url": cfg.url_for(h["relative_path"])})
 
     return {
         "status": "ok",
@@ -476,13 +537,12 @@ def list_documents(params: ListDocumentsInput) -> dict:
     shelf = _resolve_shelf(params.shelf_path)
     entries = shelf.scan()
     cfg = shelf.config
-    from docshelf_mcp.core.indexer import raw_github_url
 
     grouped: dict[str, list[dict]] = {}
     for e in entries:
         if params.category and e.category != params.category:
             continue
-        url = raw_github_url(cfg.remote, cfg.branch, e.relative_path) if cfg.remote else ""
+        url = cfg.url_for(e.relative_path)
         grouped.setdefault(e.category, []).append(
             {
                 "title": e.title,
@@ -540,6 +600,8 @@ def init_shelf(params: InitShelfInput) -> dict:
         remote=params.github_remote,
         branch=params.branch,
         default_categories=params.default_categories,
+        provider=params.provider,
+        url_template=params.url_template,
     )
     return {
         "status": "ok",
@@ -547,6 +609,7 @@ def init_shelf(params: InitShelfInput) -> dict:
         "name": shelf.config.name,
         "remote": shelf.config.remote,
         "branch": shelf.config.branch,
+        "provider": shelf.config.provider,
         "categories": params.default_categories,
         "next_steps": (
             "1. cd into the shelf and `git init && git remote add origin <url>` if not done yet.\n"

@@ -27,6 +27,9 @@ __all__ = [
     "write_subindexes",
     "scan_shelf",
     "raw_github_url",
+    "shelf_url",
+    "UrlResolver",
+    "URL_PROVIDERS",
     "DEFAULT_PREAMBLE",
     "SUBINDEX_FILENAME",
 ]
@@ -103,6 +106,105 @@ def _parse_owner_repo(remote: str) -> tuple[str, str] | None:
     if not repo:
         return None
     return m.group("owner"), repo
+
+
+# Generic host/owner/repo parse for non-GitHub providers. Handles https://,
+# ssh://, and scp-style git@host:owner/repo forms. (First two path segments —
+# GitLab subgroups are out of scope.)
+_REMOTE_RE = re.compile(r"(?P<host>[^/:\s]+)[:/](?P<owner>[^/\s]+)/(?P<repo>[^/\s?#]+)")
+
+
+def _parse_remote(remote: str) -> tuple[str, str, str] | None:
+    s = re.sub(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", "", remote.strip())
+    s = re.sub(r"^git@", "", s)
+    m = _REMOTE_RE.match(s)
+    if not m:
+        return None
+    repo = m.group("repo").rstrip(".")
+    if repo.endswith(".git"):
+        repo = repo[:-4]
+    if not repo:
+        return None
+    return m.group("host"), m.group("owner"), repo
+
+
+#: Recognized URL providers for :func:`shelf_url`.
+URL_PROVIDERS = ("github", "gitlab", "gitea", "custom", "none")
+
+
+def shelf_url(
+    provider: str,
+    remote: str,
+    branch: str,
+    url_template: str,
+    relative_path: str,
+) -> str:
+    """Build a fetch URL for ``relative_path`` under the configured provider.
+
+    Providers:
+
+    * ``github`` — ``raw.githubusercontent.com`` (the default; see
+      :func:`raw_github_url`).
+    * ``gitlab`` — ``https://<host>/<owner>/<repo>/-/raw/<branch>/<path>``.
+    * ``gitea`` — ``https://<host>/<owner>/<repo>/raw/branch/<branch>/<path>``.
+    * ``custom`` — ``url_template`` with ``{owner}``, ``{repo}``, ``{branch}``,
+      ``{path}`` placeholders (covers S3, R2, or any static host).
+    * ``none`` — a link relative to the shelf root, so INDEX.md stays
+      navigable offline.
+
+    Returns an empty string when the URL can't be built (e.g. a provider that
+    needs a remote but none parses), so the index still renders.
+    """
+    if not relative_path:
+        return ""
+    path = quote(relative_path, safe="/")
+
+    if provider == "none":
+        return path
+    if provider == "github":
+        return raw_github_url(remote, branch, relative_path)
+
+    if provider == "custom":
+        if not url_template:
+            return ""
+        parsed = _parse_remote(remote)
+        owner, repo = (parsed[1], parsed[2]) if parsed else ("", "")
+        try:
+            return url_template.format(owner=owner, repo=repo, branch=branch, path=path)
+        except (KeyError, IndexError):
+            return ""
+
+    parsed = _parse_remote(remote)
+    if parsed is None:
+        return ""
+    host, owner, repo = parsed
+    if provider == "gitlab":
+        return f"https://{host}/{owner}/{repo}/-/raw/{branch}/{path}"
+    if provider == "gitea":
+        return f"https://{host}/{owner}/{repo}/raw/branch/{branch}/{path}"
+    return ""
+
+
+class UrlResolver:
+    """Captures URL-provider config and turns a relative path into a URL."""
+
+    def __init__(
+        self,
+        *,
+        provider: str = "github",
+        remote: str = "",
+        branch: str = "main",
+        url_template: str = "",
+    ) -> None:
+        self.provider = provider or "github"
+        self.remote = remote
+        self.branch = branch
+        self.url_template = url_template
+
+    def __call__(self, relative_path: str) -> str:
+        return shelf_url(
+            self.provider, self.remote, self.branch, self.url_template, relative_path
+        )
 
 
 def scan_shelf(shelf_root: Path) -> list[DocumentEntry]:
@@ -188,14 +290,24 @@ def build_subindex(
     *,
     remote: str = "",
     branch: str = "main",
+    provider: str = "github",
+    url_template: str = "",
     section_sizes: dict[str, int] | None = None,
 ) -> str:
     """Render the SUBINDEX.md text for one split document.
 
-    Links use raw GitHub URLs when ``remote`` is set; otherwise they are
-    relative to the split directory, so the page stays navigable in local
-    editors and the GitHub web UI.
+    Links use the configured provider's absolute URL when one can be built;
+    otherwise they fall back to links relative to the split directory, so the
+    page stays navigable in local editors and web UIs.
     """
+    resolver = UrlResolver(
+        provider=provider, remote=remote, branch=branch, url_template=url_template
+    )
+
+    def link_target(rel_path: str, local: str) -> str:
+        url = resolver(rel_path)
+        return url if url.startswith(("http://", "https://")) else local
+
     sizes = section_sizes or {}
     lines: list[str] = []
     lines.append(f"# {entry.title} — sections")
@@ -206,10 +318,7 @@ def build_subindex(
         lines.append("")
 
     doc_name = Path(entry.relative_path).name
-    if remote:
-        doc_link = f"[`{doc_name}`]({raw_github_url(remote, branch, entry.relative_path)})"
-    else:
-        doc_link = f"[`{doc_name}`](../{doc_name})"
+    doc_link = f"[`{doc_name}`]({link_target(entry.relative_path, f'../{doc_name}')})"
     lines.append(
         f"Full document: {doc_link} (~{entry.size_bytes // 1024} KB — "
         "prefer the individual sections below)."
@@ -218,7 +327,7 @@ def build_subindex(
 
     for sect in entry.section_paths:
         label = _pretty_section(sect)
-        target = raw_github_url(remote, branch, sect) if remote else Path(sect).name
+        target = link_target(sect, Path(sect).name)
         size = sizes.get(sect)
         suffix = f" (~{size // 1024} KB)" if size is not None else ""
         lines.append(f"- [{label}]({target}){suffix}")
@@ -241,6 +350,8 @@ def write_subindexes(
     *,
     remote: str = "",
     branch: str = "main",
+    provider: str = "github",
+    url_template: str = "",
 ) -> list[Path]:
     """Write a SUBINDEX.md into every split-document directory.
 
@@ -256,7 +367,14 @@ def write_subindexes(
                 sizes[sect] = (shelf_root / sect).stat().st_size
             except OSError:
                 continue
-        text = build_subindex(entry, remote=remote, branch=branch, section_sizes=sizes)
+        text = build_subindex(
+            entry,
+            remote=remote,
+            branch=branch,
+            provider=provider,
+            url_template=url_template,
+            section_sizes=sizes,
+        )
         path = shelf_root / _subindex_relpath(entry)
         path.write_text(text, encoding="utf-8")
         written.append(path)
@@ -273,13 +391,15 @@ def build_index(
     category_order: list[str] | None = None,
     index_style: str = "auto",
     subindex_threshold: int = DEFAULT_SUBINDEX_THRESHOLD,
+    provider: str = "github",
+    url_template: str = "",
 ) -> str:
     """Render the INDEX.md text.
 
     Args:
         shelf_name: Human-readable shelf name, used as the H1.
         entries: From :func:`scan_shelf`.
-        remote: GitHub remote URL. Empty string disables raw URL links.
+        remote: Repository remote URL. Empty string disables absolute links.
         branch: Branch for raw URLs.
         preamble: Intro paragraph below the H1.
         category_order: Optional pinned order for the first N categories.
@@ -291,10 +411,16 @@ def build_index(
             sections.
         subindex_threshold: Section count above which ``"auto"`` switches
             to the SUBINDEX link.
+        provider: URL provider — see :func:`shelf_url`. ``"none"`` renders
+            links relative to the shelf root (offline-friendly).
+        url_template: Template for ``provider="custom"``.
 
     Returns:
         The full Markdown text of ``INDEX.md``.
     """
+    resolver = UrlResolver(
+        provider=provider, remote=remote, branch=branch, url_template=url_template
+    )
     lines: list[str] = []
     lines.append(f"# {shelf_name}")
     lines.append("")
@@ -331,8 +457,7 @@ def build_index(
             _render_entry(
                 lines,
                 entry,
-                remote,
-                branch,
+                resolver,
                 index_style=index_style,
                 subindex_threshold=subindex_threshold,
             )
@@ -356,18 +481,14 @@ def _humanize_category(cat: str) -> str:
 def _render_entry(
     lines: list[str],
     entry: DocumentEntry,
-    remote: str,
-    branch: str,
+    resolver: UrlResolver,
     *,
     index_style: str = "auto",
     subindex_threshold: int = DEFAULT_SUBINDEX_THRESHOLD,
 ) -> None:
-    url = raw_github_url(remote, branch, entry.relative_path) if remote else ""
+    url = resolver(entry.relative_path)
     label = f"`{Path(entry.relative_path).name}`"
-    if url:
-        full_link = f"[{label}]({url})"
-    else:
-        full_link = label
+    full_link = f"[{label}]({url})" if url else label
 
     desc = entry.description.strip()
     desc_suffix = f" — {desc}" if desc else ""
@@ -390,20 +511,17 @@ def _render_entry(
     lines.append("")
     if use_subindex:
         sub_rel = _subindex_relpath(entry)
-        if remote:
-            sub_link = f"[SUBINDEX]({raw_github_url(remote, branch, sub_rel)})"
-        else:
-            sub_link = f"[SUBINDEX]({sub_rel})"
+        sub_url = resolver(sub_rel) or sub_rel
         lines.append(
-            f"Sections ({len(entry.section_paths)}): see the {sub_link} "
-            "for the per-chapter list."
+            f"Sections ({len(entry.section_paths)}): see the "
+            f"[SUBINDEX]({sub_url}) for the per-chapter list."
         )
         lines.append("")
     else:
         for sect in entry.section_paths:
             sect_label = _pretty_section(sect)
-            if remote:
-                sect_url = raw_github_url(remote, branch, sect)
+            sect_url = resolver(sect)
+            if sect_url:
                 lines.append(f"- [{sect_label}]({sect_url})")
             else:
                 lines.append(f"- {sect_label} (`{sect}`)")

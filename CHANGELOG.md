@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `docshelf_doctor` tool (+ `Shelf.doctor`) — check the shelf for drift
+  (stale meta entries, orphaned split dirs, out-of-sync splits, stale
+  index, duplicate titles, empty categories) and optionally apply the safe
+  fixes with `fix=true`. (#10)
+- Pluggable URL providers — `.docshelf.json` / `init_shelf` gain `provider`
+  (`github` / `gitlab` / `gitea` / `custom` / `none`) and `url_template`,
+  so GitLab/Gitea/S3/R2/any static host get correct links and offline
+  shelves get relative ones. (#18)
+- Suspicious-section-heading warnings during split / rebuild — `add_document`
+  and `rebuild_index` responses carry `warnings` (`toc-leak`,
+  `unit-fragment`, `table-residue`, `near-duplicate`); detection only. (#8)
 - `docshelf_add_directory` tool (+ `Shelf.add_directory`) — add every
   PDF/Markdown in a folder in one call, rebuilding INDEX.md once and
   reporting per-file success/failure. (#11)
