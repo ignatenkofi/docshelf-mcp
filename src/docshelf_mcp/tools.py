@@ -18,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from docshelf_mcp.config import default_shelf_root
 from docshelf_mcp.core.converter import Quality, pdf_to_markdown
-from docshelf_mcp.core.shelf import Shelf
+from docshelf_mcp.core.shelf import SHELF_METADATA_FILENAME, Shelf
 from docshelf_mcp.core.splitter import (
     clean_markdown,
     should_split,
@@ -28,12 +28,15 @@ from docshelf_mcp.core.splitter import (
 
 __all__ = [
     "AddDocumentInput",
+    "RemoveDocumentInput",
     "RebuildIndexInput",
     "SearchInput",
     "ListDocumentsInput",
     "ConvertPdfInput",
     "InitShelfInput",
+    "NotAShelfError",
     "add_document",
+    "remove_document",
     "rebuild_index",
     "search",
     "list_documents",
@@ -42,8 +45,31 @@ __all__ = [
 ]
 
 
+class NotAShelfError(Exception):
+    """A shelf tool was pointed at a directory that isn't an initialized shelf.
+
+    Raised by :func:`_resolve_shelf` so tools never silently scaffold a shelf
+    in whatever directory the server happens to be running in. ``init_shelf``
+    (the scaffolder) and ``convert_pdf`` (no shelf) don't resolve a shelf, so
+    they are unaffected.
+    """
+
+
 def _resolve_shelf(shelf_path: str | None) -> Shelf:
-    return Shelf(Path(shelf_path).expanduser() if shelf_path else default_shelf_root())
+    """Resolve the target shelf, requiring it to already be initialized.
+
+    Raises:
+        NotAShelfError: The resolved root has no ``.docshelf.json``.
+    """
+    shelf = Shelf(Path(shelf_path).expanduser() if shelf_path else default_shelf_root())
+    if not (shelf.root / SHELF_METADATA_FILENAME).is_file():
+        raise NotAShelfError(
+            f"{shelf.root} is not an initialized docshelf "
+            f"(no {SHELF_METADATA_FILENAME}). Run init_shelf to create a shelf "
+            f"there, or set DOCSHELF_ROOT / pass shelf_path to point at an "
+            f"existing shelf."
+        )
+    return shelf
 
 
 class _BaseInput(BaseModel):
@@ -102,6 +128,33 @@ class AddDocumentInput(_BaseInput):
     )
 
 
+class RemoveDocumentInput(_BaseInput):
+    """Input for ``remove_document``."""
+
+    category: str = Field(
+        ...,
+        description="Category the document lives in (same value as at add time).",
+        min_length=1,
+        max_length=80,
+    )
+    document: str = Field(
+        ...,
+        description="Filename ('foo.md'), slug ('foo'), or the human title "
+        "used at add time.",
+        min_length=1,
+        max_length=200,
+    )
+    dry_run: bool = Field(
+        default=False,
+        description="If true, only report what would be removed — delete nothing.",
+    )
+    shelf_path: str | None = Field(
+        default=None,
+        description="Path to the shelf root directory. Defaults to $DOCSHELF_ROOT "
+        "or the server's working directory.",
+    )
+
+
 class RebuildIndexInput(_BaseInput):
     shelf_path: str | None = Field(
         default=None, description="Path to the shelf root directory."
@@ -112,7 +165,9 @@ class SearchInput(_BaseInput):
     query: str = Field(
         ...,
         description="Plain-text search query. Tokens are space-split; each "
-        "must appear (case-insensitive) for a hit to count.",
+        "must appear (case-insensitive) for a hit to count. If nothing "
+        "matches all tokens, the search falls back to any-token matching "
+        "and the response marks match_mode='any'.",
         min_length=1,
         max_length=500,
     )
@@ -218,6 +273,30 @@ def add_document(params: AddDocumentInput) -> dict:
     }
 
 
+def remove_document(params: RemoveDocumentInput) -> dict:
+    """Implementation of the ``remove_document`` MCP tool."""
+    shelf = _resolve_shelf(params.shelf_path)
+    result = shelf.remove_document(
+        category=params.category,
+        document=params.document,
+        dry_run=params.dry_run,
+    )
+    return {
+        "status": "ok",
+        "shelf_root": str(shelf.root),
+        "removed_paths": [str(p.relative_to(shelf.root)) for p in result.removed_paths],
+        "was_split": result.was_split,
+        "dry_run": result.dry_run,
+        "index_path": "INDEX.md",
+        "next_steps": (
+            "Nothing was deleted (dry run)."
+            if result.dry_run
+            else "Commit the removal ('git add -A && git commit') to update the "
+            "published shelf. INDEX.md has already been regenerated."
+        ),
+    }
+
+
 def rebuild_index(params: RebuildIndexInput) -> dict:
     """Implementation of the ``rebuild_index`` MCP tool."""
     shelf = _resolve_shelf(params.shelf_path)
@@ -236,6 +315,12 @@ def search(params: SearchInput) -> dict:
     """Implementation of the ``search`` MCP tool."""
     shelf = _resolve_shelf(params.shelf_path)
     hits = shelf.search(params.query, max_results=params.max_results)
+    match_mode = "all"
+    if not hits:
+        # Over-specified query — retry requiring only some tokens, and say so.
+        hits = shelf.search(params.query, max_results=params.max_results, mode="any")
+        if hits:
+            match_mode = "any"
 
     cfg = shelf.config
     from docshelf_mcp.core.indexer import raw_github_url
@@ -249,6 +334,7 @@ def search(params: SearchInput) -> dict:
         "status": "ok",
         "shelf_root": str(shelf.root),
         "query": params.query,
+        "match_mode": match_mode,
         "match_count": len(enriched),
         "hits": enriched,
     }

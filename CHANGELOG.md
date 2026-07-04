@@ -5,6 +5,39 @@ All notable changes to docshelf-mcp will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- `docshelf_remove_document` tool (+ `Shelf.remove_document`) — deletes a
+  document, its split-section directory, and its `.meta.json` entry, then
+  regenerates INDEX.md. Supports `dry_run`. (#4)
+- Per-document `SUBINDEX.md` for split documents — the INDEX → SUBINDEX →
+  section navigation the docs always described. New `.docshelf.json` keys:
+  `index_style` (`"auto"` / `"inline"` / `"subindex"`) and
+  `subindex_threshold_sections` (default 10). (#3)
+- `search` responses now include `match_mode` (`"all"` or `"any"`). (#2)
+
+### Fixed
+- The splitter is now **fence-aware**: `## ` / `# ` lines inside fenced
+  code blocks (```` ``` ````/`~~~`) are no longer counted as headings,
+  used as split boundaries, or demoted by the fake-H1 heuristic — so CLI
+  dumps and config exports are no longer split mid-block or mangled. (#5)
+- `raw_github_url` now handles repo names containing dots
+  (`github.com/me/my.repo`), correctly strips a trailing `.git` on the
+  https form, and percent-encodes path segments. (#6)
+- `docshelf_search` now honours its documented AND semantics: every query
+  token must appear for a hit to count, with an automatic any-token
+  fallback when nothing matches all tokens. (#2)
+- `docshelf_mcp.__version__` reported `0.1.0` while the package was
+  `0.2.0`. The version is now single-sourced from `__init__.py` via
+  hatch's dynamic version. (#1)
+
+### Changed
+- Every shelf tool except `docshelf_init_shelf` / `docshelf_convert_pdf`
+  now fails fast with a `NotAShelfError` when the resolved root is not an
+  initialized shelf, instead of silently scaffolding one in the wrong
+  directory. (#7)
+
 ## [0.2.0] — 2026-05-14
 
 Documentation, distribution, and community-onboarding pass. No runtime

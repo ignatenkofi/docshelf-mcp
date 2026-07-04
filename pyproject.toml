@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "docshelf-mcp"
-version = "0.2.0"
+dynamic = ["version"]
 description = "MCP server for managing AI-friendly document collections — convert PDFs, split by chapter, index for chat projects."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -52,6 +52,9 @@ Homepage = "https://github.com/ignatenkofi/docshelf-mcp"
 Repository = "https://github.com/ignatenkofi/docshelf-mcp"
 Issues = "https://github.com/ignatenkofi/docshelf-mcp/issues"
 Changelog = "https://github.com/ignatenkofi/docshelf-mcp/blob/main/CHANGELOG.md"
+
+[tool.hatch.version]
+path = "src/docshelf_mcp/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/docshelf_mcp"]

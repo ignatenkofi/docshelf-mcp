@@ -16,5 +16,7 @@ from __future__ import annotations
 
 from docshelf_mcp.core.shelf import Shelf
 
-__version__ = "0.1.0"
+#: Single source of truth for the package version — pyproject.toml reads it
+#: via hatch's dynamic version ([tool.hatch.version] path = ...).
+__version__ = "0.2.0"
 __all__ = ["Shelf", "__version__"]
