@@ -173,6 +173,7 @@ my-shelf/
     │   ├── .meta.json    ← per-document title/description overrides
     │   ├── mikrotik-routeros.md       (full document, lightly cleaned)
     │   └── mikrotik-routeros/         (auto-split sections)
+    │       ├── SUBINDEX.md            (per-document navigation page)
     │       ├── 001-overview.md
     │       ├── 002-bridging.md
     │       └── 003-firewall.md
@@ -197,6 +198,14 @@ The splitter:
 - Slices on H2 boundaries.
 - Names files `NNN-<slug>.md` so they sort naturally and survive title changes.
 - Wipes the previous split directory before regenerating — fully idempotent.
+- Writes a `SUBINDEX.md` navigation page into the split directory (title,
+  description, per-section links) — regenerated on every `rebuild_index`.
+
+In `INDEX.md`, split documents with up to 10 sections list every section
+inline; bigger splits get a single link to their `SUBINDEX.md` so the index
+stays small. Control this via `.docshelf.json`:
+`"index_style": "auto" | "inline" | "subindex"` and
+`"subindex_threshold_sections": 10`.
 
 If you want to keep a document whole, pass `split=False`.
 

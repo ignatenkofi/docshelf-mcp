@@ -84,6 +84,33 @@ def test_add_document_with_split(tmp_path: Path):
         assert p.name.startswith("0")  # NNN-prefix
 
 
+def test_split_document_gets_subindex(tmp_path: Path):
+    big_md = tmp_path / "big.md"
+    chapter_body = "Lorem ipsum dolor sit amet. " * 500
+    text = "# Title\n\n" + "\n\n".join(
+        f"## Section {i}\n\n{chapter_body}" for i in range(5)
+    )
+    big_md.write_text(text, encoding="utf-8")
+
+    shelf = Shelf(tmp_path / "s").init(name="S", remote="https://github.com/me/r")
+    result = shelf.add_document(big_md, category="big", title="Big Document", split=True)
+    assert result.was_split
+
+    subindex = result.document_path.parent / result.document_path.stem / "SUBINDEX.md"
+    assert subindex.is_file()
+    sub_text = subindex.read_text(encoding="utf-8")
+    assert "# Big Document — sections" in sub_text
+    assert "raw.githubusercontent.com" in sub_text
+
+    # SUBINDEX is navigation: not a section in INDEX counts, not a search hit.
+    idx = (shelf.root / "INDEX.md").read_text(encoding="utf-8")
+    assert "sections: 5" in idx or "sections: 6" in idx  # preamble may add one
+    assert shelf.search("Lorem")  # body text is findable...
+    assert not any(
+        "SUBINDEX" in h["relative_path"] for h in shelf.search("Big Document sections")
+    )
+
+
 def test_add_document_unsupported_type(tmp_path: Path):
     shelf = Shelf(tmp_path / "s").init(name="S")
     bad = tmp_path / "junk.txt"

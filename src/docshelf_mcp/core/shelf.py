@@ -32,9 +32,12 @@ from typing import Literal
 from docshelf_mcp.core.converter import Quality, pdf_to_markdown
 from docshelf_mcp.core.indexer import (
     DEFAULT_PREAMBLE,
+    DEFAULT_SUBINDEX_THRESHOLD,
+    SUBINDEX_FILENAME,
     DocumentEntry,
     build_index,
     scan_shelf,
+    write_subindexes,
 )
 from docshelf_mcp.core.slugify import slugify
 from docshelf_mcp.core.splitter import (
@@ -61,6 +64,11 @@ class ShelfConfig:
     preamble: str = DEFAULT_PREAMBLE
     category_order: list[str] = field(default_factory=list)
     split_threshold_bytes: int = DEFAULT_SPLIT_THRESHOLD_BYTES
+    #: How split documents render in INDEX.md: "inline" lists every section,
+    #: "subindex" links the per-document SUBINDEX.md, "auto" (default)
+    #: inlines small splits and switches to SUBINDEX beyond the threshold.
+    index_style: str = "auto"
+    subindex_threshold_sections: int = DEFAULT_SUBINDEX_THRESHOLD
 
     @classmethod
     def load(cls, shelf_root: Path) -> ShelfConfig:
@@ -272,9 +280,11 @@ class Shelf:
         return scan_shelf(self.root)
 
     def rebuild_index(self) -> Path:
-        """(Re)generate ``INDEX.md`` from the on-disk state. Returns its path."""
+        """(Re)generate ``INDEX.md`` — and a ``SUBINDEX.md`` per split
+        document — from the on-disk state. Returns the INDEX path."""
         cfg = self.config
         entries = self.scan()
+        write_subindexes(self.root, entries, remote=cfg.remote, branch=cfg.branch)
         text = build_index(
             cfg.name,
             entries,
@@ -282,6 +292,8 @@ class Shelf:
             branch=cfg.branch,
             preamble=cfg.preamble,
             category_order=cfg.category_order,
+            index_style=cfg.index_style,
+            subindex_threshold=cfg.subindex_threshold_sections,
         )
         index_path = self.root / "INDEX.md"
         index_path.write_text(text, encoding="utf-8")
@@ -318,6 +330,9 @@ class Shelf:
             return hits
 
         for md_file in docs_root.rglob("*.md"):
+            if md_file.name == SUBINDEX_FILENAME:
+                # Navigation pages would only echo the titles back as noise.
+                continue
             try:
                 text = md_file.read_text(encoding="utf-8", errors="replace")
             except OSError:
