@@ -17,7 +17,7 @@ FIXTURE = Path(__file__).parent / "fixtures" / "sample.md"
 
 
 @pytest.mark.asyncio
-async def test_server_exposes_nine_tools():
+async def test_server_exposes_ten_tools():
     tool_list = await mcp.list_tools()
     names = sorted(tool.name for tool in tool_list)
     assert names == sorted(
@@ -26,6 +26,7 @@ async def test_server_exposes_nine_tools():
             "docshelf_add_directory",
             "docshelf_read_document",
             "docshelf_convert_pdf",
+            "docshelf_doctor",
             "docshelf_init_shelf",
             "docshelf_list_documents",
             "docshelf_rebuild_index",
@@ -215,6 +216,29 @@ def test_list_documents_wrapper(tmp_path: Path):
     assert out["status"] == "ok"
     assert out["total_documents"] == 2
     assert "x" in out["categories"]
+
+
+def test_doctor_wrapper(tmp_path: Path):
+    shelf_path = str(tmp_path / "s")
+    t.init_shelf(t.InitShelfInput(shelf_path=shelf_path, name="T"))
+    t.add_document(
+        t.AddDocumentInput(
+            source_path=str(FIXTURE), category="docs", title="Keeper",
+            split=False, shelf_path=shelf_path,
+        )
+    )
+    # Clean shelf: no findings.
+    clean = t.doctor(t.DoctorInput(shelf_path=shelf_path))
+    assert clean["status"] == "ok" and clean["finding_count"] == 0
+
+    # Inject an orphan, then fix it.
+    orphan = Path(shelf_path) / "docs" / "docs" / "orphan"
+    orphan.mkdir()
+    (orphan / "001-x.md").write_text("## x\n", encoding="utf-8")
+    out = t.doctor(t.DoctorInput(fix=True, shelf_path=shelf_path))
+    assert out["by_rule"].get("orphaned-split-dir", 0) >= 1
+    assert out["fixed_count"] >= 1
+    assert not orphan.exists()
 
 
 def test_rebuild_index_wrapper(tmp_path: Path):

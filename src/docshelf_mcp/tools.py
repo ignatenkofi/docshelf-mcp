@@ -32,6 +32,7 @@ __all__ = [
     "ReadDocumentInput",
     "RemoveDocumentInput",
     "RebuildIndexInput",
+    "DoctorInput",
     "SearchInput",
     "ListDocumentsInput",
     "ConvertPdfInput",
@@ -42,6 +43,7 @@ __all__ = [
     "read_document",
     "remove_document",
     "rebuild_index",
+    "doctor",
     "search",
     "list_documents",
     "convert_pdf",
@@ -220,6 +222,17 @@ class RemoveDocumentInput(_BaseInput):
 
 
 class RebuildIndexInput(_BaseInput):
+    shelf_path: str | None = Field(
+        default=None, description="Path to the shelf root directory."
+    )
+
+
+class DoctorInput(_BaseInput):
+    fix: bool = Field(
+        default=False,
+        description="Apply the safe fixes (prune stale meta entries, delete "
+        "orphaned split dirs, rebuild INDEX). Other findings stay report-only.",
+    )
     shelf_path: str | None = Field(
         default=None, description="Path to the shelf root directory."
     )
@@ -452,6 +465,34 @@ def rebuild_index(params: RebuildIndexInput) -> dict:
         "category_count": len({e.category for e in entries}),
         "warning_count": len(warnings),
         "warnings": warnings,
+    }
+
+
+def doctor(params: DoctorInput) -> dict:
+    """Implementation of the ``doctor`` MCP tool."""
+    shelf = _resolve_shelf(params.shelf_path)
+    findings = shelf.doctor(fix=params.fix)
+    by_rule: dict[str, int] = {}
+    for f in findings:
+        by_rule[f.rule] = by_rule.get(f.rule, 0) + 1
+    return {
+        "status": "ok",
+        "shelf_root": str(shelf.root),
+        "fix": params.fix,
+        "finding_count": len(findings),
+        "fixed_count": sum(1 for f in findings if f.fixed),
+        "by_rule": by_rule,
+        "findings": [
+            {
+                "rule": f.rule,
+                "severity": f.severity,
+                "path": f.path,
+                "detail": f.detail,
+                "suggested_fix": f.suggested_fix,
+                "fixed": f.fixed,
+            }
+            for f in findings
+        ],
     }
 
 

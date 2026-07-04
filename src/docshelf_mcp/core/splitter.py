@@ -226,6 +226,24 @@ def write_split_files(
     return written
 
 
+def _expected_split_names(sections: list[tuple[str, str]]) -> list[str]:
+    """The ``NNN-slug.md`` filenames :func:`write_split_files` would produce.
+
+    Kept in lockstep with :func:`write_split_files`'s naming so a caller (e.g.
+    the shelf doctor) can tell whether an on-disk split matches a fresh one.
+    Returns the names sorted, like ``dir.glob('*.md')`` would.
+    """
+    names: list[str] = []
+    used_slugs: set[str] = set()
+    for idx, (title, _body) in enumerate(sections, start=1):
+        slug = slugify(title)
+        if slug in used_slugs:
+            slug = f"{slug}-{idx:03d}"
+        used_slugs.add(slug)
+        names.append(f"{idx:03d}-{slug}.md")
+    return sorted(names)
+
+
 # --------------------------------------------------------------- section lint
 
 #: A run of dotted leaders (``......``) as a table-of-contents artefact leaks in.

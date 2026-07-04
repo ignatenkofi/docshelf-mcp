@@ -97,6 +97,18 @@ Regenerate `INDEX.md` from the on-disk state. Use after manual edits to `docs/` 
 {}
 ```
 
+### `docshelf_doctor`
+
+Check the shelf for drift and optionally apply the safe fixes. Read-only by default.
+
+```jsonc
+{
+  "fix": false  // true = prune stale meta entries, delete orphaned split dirs, rebuild INDEX
+}
+```
+
+Reports `findings` (each with `rule`, `severity`, `path`, `detail`, `suggested_fix`, `fixed`) plus a `by_rule` summary. Rules: `stale-meta-entry`, `orphaned-split-dir`, `split-out-of-sync`, `stale-index`, `duplicate-title`, `empty-category`, `corrupt-meta`. Findings are sorted so runs diff cleanly. With `fix=true`, only the safe subset is applied; everything else stays report-only.
+
 ### `docshelf_search`
 
 Plain-text search across every Markdown file in the shelf.

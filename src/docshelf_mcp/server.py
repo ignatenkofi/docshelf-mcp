@@ -199,6 +199,32 @@ def rebuild_index(params: t.RebuildIndexInput) -> str:
 
 
 @mcp.tool(
+    name="docshelf_doctor",
+    annotations={
+        "title": "Check shelf integrity",
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+)
+def doctor(params: t.DoctorInput) -> str:
+    """Check the shelf for drift and optionally apply the safe fixes.
+
+    Reports stale `.meta.json` entries, orphaned split directories, split
+    sections out of sync with their parent, a stale `INDEX.md`, duplicate
+    titles, and empty categories. Read-only by default; pass ``fix=true`` to
+    prune stale meta entries, delete orphaned split dirs, and rebuild the
+    index (other findings stay report-only). Findings are sorted for stable
+    diffing.
+    """
+    try:
+        return _serialize(t.doctor(params))
+    except Exception as exc:
+        return _error_response(exc, "doctor")
+
+
+@mcp.tool(
     name="docshelf_search",
     annotations={
         "title": "Search the shelf",

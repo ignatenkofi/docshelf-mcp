@@ -133,7 +133,7 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) o
 }
 ```
 
-Restart Claude Desktop. You now have nine new tools available:
+Restart Claude Desktop. You now have ten new tools available:
 
 | Tool | What it does |
 |---|---|
@@ -143,6 +143,7 @@ Restart Claude Desktop. You now have nine new tools available:
 | `docshelf_read_document` | Read a document/section's content over MCP (works on private shelves). |
 | `docshelf_remove_document` | Remove a document, its sections, and metadata. Re-indexes. |
 | `docshelf_rebuild_index` | Regenerate `INDEX.md` from disk. |
+| `docshelf_doctor` | Check shelf integrity; optionally auto-fix safe drift. |
 | `docshelf_search` | Plain-text search across the shelf, with raw URLs. |
 | `docshelf_list_documents` | List documents by category. |
 | `docshelf_convert_pdf` | Standalone PDF → Markdown (no shelf). |

@@ -397,6 +397,66 @@ def test_remove_document_missing_raises(tmp_path: Path):
         shelf.remove_document(category="docs", document="../../INDEX.md")
 
 
+def test_doctor_clean_shelf_has_no_findings(tmp_path: Path):
+    shelf = Shelf(tmp_path / "s").init(name="S", remote="https://github.com/me/r")
+    shelf.add_document(FIXTURE, category="docs", title="Sample", split=False)
+    assert shelf.doctor() == []
+
+
+def test_doctor_detects_and_fixes_stale_meta_and_orphan(tmp_path: Path):
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    shelf.add_document(FIXTURE, category="docs", title="Keeper", split=False)
+    cat = shelf.root / "docs" / "docs"
+
+    # Inject drift: a stale meta entry + an orphaned split dir.
+    meta = json.loads((cat / ".meta.json").read_text())
+    meta["ghost.md"] = {"title": "Ghost", "description": ""}
+    (cat / ".meta.json").write_text(json.dumps(meta), encoding="utf-8")
+    (cat / "orphan").mkdir()
+    (cat / "orphan" / "001-x.md").write_text("## x\n", encoding="utf-8")
+
+    report = shelf.doctor()
+    rules = {f.rule for f in report}
+    assert "stale-meta-entry" in rules and "orphaned-split-dir" in rules
+    assert all(not f.fixed for f in report)  # read-only by default
+
+    fixed = shelf.doctor(fix=True)
+    assert any(f.rule == "stale-meta-entry" and f.fixed for f in fixed)
+    assert any(f.rule == "orphaned-split-dir" and f.fixed for f in fixed)
+    # Debris is gone; a re-run is clean of those two rules.
+    assert not (cat / "orphan").exists()
+    assert "ghost.md" not in json.loads((cat / ".meta.json").read_text())
+    after = {f.rule for f in shelf.doctor()}
+    assert "stale-meta-entry" not in after and "orphaned-split-dir" not in after
+
+
+def test_doctor_detects_stale_index(tmp_path: Path):
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    shelf.add_document(FIXTURE, category="docs", title="One", split=False)
+    # Corrupt INDEX.md so it no longer matches the shelf.
+    (shelf.root / "INDEX.md").write_text("# stale\n", encoding="utf-8")
+
+    assert any(f.rule == "stale-index" for f in shelf.doctor())
+    shelf.doctor(fix=True)
+    assert not any(f.rule == "stale-index" for f in shelf.doctor())
+
+
+def test_doctor_detects_empty_category_and_duplicate_title(tmp_path: Path):
+    shelf = Shelf(tmp_path / "s").init(name="S", default_categories=["hollow"])
+    shelf.add_document(FIXTURE, category="docs", title="Dup", split=False)
+    # A second document whose title collides after slugify differences —
+    # force the same display title via a distinct filename + meta override.
+    cat = shelf.root / "docs" / "docs"
+    (cat / "dup-two.md").write_text("# Dup\n\nbody\n", encoding="utf-8")
+    meta = json.loads((cat / ".meta.json").read_text())
+    meta["dup-two.md"] = {"title": "Dup", "description": ""}
+    (cat / ".meta.json").write_text(json.dumps(meta), encoding="utf-8")
+
+    rules = {f.rule for f in shelf.doctor()}
+    assert "empty-category" in rules  # the pre-created 'hollow' category
+    assert "duplicate-title" in rules
+
+
 def test_shelf_without_remote_still_works(tmp_path: Path):
     shelf = Shelf(tmp_path / "s").init(name="Local Shelf")  # no remote
     shelf.add_document(FIXTURE, category="docs", title="Sample", split=False)

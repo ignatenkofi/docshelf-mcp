@@ -44,6 +44,7 @@ from docshelf_mcp.core.slugify import slugify
 from docshelf_mcp.core.splitter import (
     DEFAULT_SPLIT_THRESHOLD_BYTES,
     SectionWarning,
+    _expected_split_names,
     clean_markdown,
     lint_sections,
     should_split,
@@ -51,7 +52,14 @@ from docshelf_mcp.core.splitter import (
     write_split_files,
 )
 
-__all__ = ["Shelf", "ShelfConfig", "AddResult", "RemoveResult", "ReadResult"]
+__all__ = [
+    "Shelf",
+    "ShelfConfig",
+    "AddResult",
+    "RemoveResult",
+    "ReadResult",
+    "DoctorFinding",
+]
 
 
 SHELF_METADATA_FILENAME = ".docshelf.json"
@@ -118,6 +126,20 @@ class ReadResult:
     size_bytes: int
     #: True if the file is larger than the returned slice.
     truncated: bool
+
+
+@dataclass
+class DoctorFinding:
+    """One integrity issue found by :meth:`Shelf.doctor`."""
+
+    rule: str
+    severity: str  # "error" | "warning" | "info"
+    #: Path (relative to the shelf root, posix) the finding is about.
+    path: str
+    detail: str
+    suggested_fix: str
+    #: Set True when ``doctor(fix=True)`` resolved this finding.
+    fixed: bool = False
 
 
 class Shelf:
@@ -531,13 +553,10 @@ class Shelf:
         """List every document currently on the shelf."""
         return scan_shelf(self.root)
 
-    def rebuild_index(self) -> Path:
-        """(Re)generate ``INDEX.md`` — and a ``SUBINDEX.md`` per split
-        document — from the on-disk state. Returns the INDEX path."""
+    def _index_text(self, entries: list[DocumentEntry]) -> str:
+        """Render the INDEX.md text from ``entries`` — no side effects."""
         cfg = self.config
-        entries = self.scan()
-        write_subindexes(self.root, entries, remote=cfg.remote, branch=cfg.branch)
-        text = build_index(
+        return build_index(
             cfg.name,
             entries,
             remote=cfg.remote,
@@ -547,8 +566,15 @@ class Shelf:
             index_style=cfg.index_style,
             subindex_threshold=cfg.subindex_threshold_sections,
         )
+
+    def rebuild_index(self) -> Path:
+        """(Re)generate ``INDEX.md`` — and a ``SUBINDEX.md`` per split
+        document — from the on-disk state. Returns the INDEX path."""
+        cfg = self.config
+        entries = self.scan()
+        write_subindexes(self.root, entries, remote=cfg.remote, branch=cfg.branch)
         index_path = self.root / "INDEX.md"
-        index_path.write_text(text, encoding="utf-8")
+        index_path.write_text(self._index_text(entries), encoding="utf-8")
         return index_path
 
     def lint_shelf(self) -> dict[str, list[SectionWarning]]:
@@ -573,6 +599,138 @@ class Shelf:
             if warnings:
                 result[entry.relative_path] = warnings
         return result
+
+    # ------------------------------------------------------------- doctor
+
+    def doctor(self, *, fix: bool = False) -> list[DoctorFinding]:
+        """Check the shelf for drift and (optionally) apply the safe fixes.
+
+        Detects: stale ``.meta.json`` entries, orphaned split directories,
+        split sections out of sync with their parent document, a stale
+        ``INDEX.md``, duplicate titles within a category, and empty
+        categories. With ``fix=True`` the *safe* subset is applied — prune
+        stale meta entries, delete orphaned split dirs, and rebuild the index
+        — and those findings are marked ``fixed``. Everything else is
+        report-only. Findings are returned sorted for stable diffing.
+        """
+        import shutil
+
+        findings: list[DoctorFinding] = []
+        docs_root = self.root / "docs"
+        if not docs_root.is_dir():
+            return findings
+
+        def rel(p: Path) -> str:
+            return p.relative_to(self.root).as_posix()
+
+        structural_fix = False
+        for category_dir in sorted(p for p in docs_root.iterdir() if p.is_dir()):
+            md_files = sorted(category_dir.glob("*.md"))
+            stems = {p.stem for p in md_files}
+
+            if not md_files:
+                findings.append(DoctorFinding(
+                    "empty-category", "info", rel(category_dir),
+                    "category directory contains no documents",
+                    "remove the empty directory"))
+
+            # stale-meta-entry: a .meta.json key with no matching file.
+            meta_path = category_dir / ".meta.json"
+            if meta_path.is_file():
+                try:
+                    data = json.loads(meta_path.read_text(encoding="utf-8"))
+                except json.JSONDecodeError:
+                    data = None
+                    findings.append(DoctorFinding(
+                        "corrupt-meta", "error", rel(meta_path),
+                        "`.meta.json` is not valid JSON",
+                        "fix or delete the file, then rebuild_index"))
+                if isinstance(data, dict):
+                    stale = sorted(k for k in data if not (category_dir / k).is_file())
+                    for k in stale:
+                        f = DoctorFinding(
+                            "stale-meta-entry", "warning", rel(meta_path),
+                            f"entry '{k}' has no matching document file",
+                            "prune the entry")
+                        findings.append(f)
+                    if fix and stale:
+                        for k in stale:
+                            del data[k]
+                        if data:
+                            meta_path.write_text(
+                                json.dumps(data, indent=2, ensure_ascii=False) + "\n",
+                                encoding="utf-8")
+                        else:
+                            meta_path.unlink()
+                        for f in findings:
+                            if f.rule == "stale-meta-entry" and f.path == rel(meta_path):
+                                f.fixed = True
+                        structural_fix = True
+
+            # orphaned-split-dir: a subdir with no parent <stem>.md.
+            for sub in sorted(p for p in category_dir.iterdir() if p.is_dir()):
+                if sub.stem not in stems:
+                    f = DoctorFinding(
+                        "orphaned-split-dir", "warning", rel(sub),
+                        "split directory has no parent document",
+                        "delete the directory")
+                    if fix:
+                        shutil.rmtree(sub)
+                        f.fixed = True
+                        structural_fix = True
+                    findings.append(f)
+
+            # split-out-of-sync: on-disk sections differ from a fresh split.
+            for md in md_files:
+                split_dir = category_dir / md.stem
+                if not split_dir.is_dir():
+                    continue
+                try:
+                    text = md.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    continue
+                expected = _expected_split_names(split_by_h2(text))
+                actual = sorted(
+                    p.name for p in split_dir.glob("*.md")
+                    if p.name != SUBINDEX_FILENAME
+                )
+                if expected != actual:
+                    findings.append(DoctorFinding(
+                        "split-out-of-sync", "warning", rel(md),
+                        "section files differ from a fresh split of the parent",
+                        "re-add the document to regenerate its sections"))
+
+        # duplicate-title within a category (from the resolved entries).
+        by_cat_title: dict[tuple[str, str], list[str]] = {}
+        for e in self.scan():
+            by_cat_title.setdefault((e.category, e.title.strip().lower()), []).append(
+                e.relative_path)
+        for (cat, _title), paths in by_cat_title.items():
+            if len(paths) > 1:
+                for p in sorted(paths)[1:]:
+                    findings.append(DoctorFinding(
+                        "duplicate-title", "warning", p,
+                        f"title duplicates another document in '{cat}'",
+                        "give one of the documents a distinct title"))
+
+        # stale-index: INDEX.md content differs from a fresh render.
+        index_path = self.root / "INDEX.md"
+        current = index_path.read_text(encoding="utf-8") if index_path.is_file() else None
+        if current != self._index_text(self.scan()):
+            f = DoctorFinding(
+                "stale-index", "warning", "INDEX.md",
+                "INDEX.md is out of date with the shelf contents",
+                "run rebuild_index")
+            if fix:
+                f.fixed = True
+            findings.append(f)
+
+        if fix and (structural_fix or any(
+                x.rule == "stale-index" for x in findings)):
+            self.rebuild_index()
+
+        findings.sort(key=lambda x: (x.path, x.rule))
+        return findings
 
     # ------------------------------------------------------------- search
 
