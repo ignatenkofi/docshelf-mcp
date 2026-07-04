@@ -317,6 +317,18 @@ class InitShelfInput(_BaseInput):
         min_length=1,
         max_length=100,
     )
+    provider: str = Field(
+        default="github",
+        description="URL provider for generated links: 'github' (default), "
+        "'gitlab', 'gitea', 'custom' (uses url_template), or 'none' (relative "
+        "links for offline/local shelves).",
+    )
+    url_template: str = Field(
+        default="",
+        description="For provider='custom': URL template with {owner}, {repo}, "
+        "{branch}, {path} placeholders. Covers S3, R2, or any static host.",
+        max_length=500,
+    )
 
 
 # --------------------------------------------------------------- wrappers
@@ -407,9 +419,7 @@ def read_document(params: ReadDocumentInput) -> dict:
         params.relative_path, max_bytes=params.max_bytes, offset=params.offset
     )
     cfg = shelf.config
-    from docshelf_mcp.core.indexer import raw_github_url
-
-    url = raw_github_url(cfg.remote, cfg.branch, result.relative_path) if cfg.remote else ""
+    url = cfg.url_for(result.relative_path)
     return {
         "status": "ok",
         "shelf_root": str(shelf.root),
@@ -508,12 +518,9 @@ def search(params: SearchInput) -> dict:
             match_mode = "any"
 
     cfg = shelf.config
-    from docshelf_mcp.core.indexer import raw_github_url
-
     enriched = []
     for h in hits:
-        url = raw_github_url(cfg.remote, cfg.branch, h["relative_path"]) if cfg.remote else ""
-        enriched.append({**h, "raw_url": url})
+        enriched.append({**h, "raw_url": cfg.url_for(h["relative_path"])})
 
     return {
         "status": "ok",
@@ -530,13 +537,12 @@ def list_documents(params: ListDocumentsInput) -> dict:
     shelf = _resolve_shelf(params.shelf_path)
     entries = shelf.scan()
     cfg = shelf.config
-    from docshelf_mcp.core.indexer import raw_github_url
 
     grouped: dict[str, list[dict]] = {}
     for e in entries:
         if params.category and e.category != params.category:
             continue
-        url = raw_github_url(cfg.remote, cfg.branch, e.relative_path) if cfg.remote else ""
+        url = cfg.url_for(e.relative_path)
         grouped.setdefault(e.category, []).append(
             {
                 "title": e.title,
@@ -594,6 +600,8 @@ def init_shelf(params: InitShelfInput) -> dict:
         remote=params.github_remote,
         branch=params.branch,
         default_categories=params.default_categories,
+        provider=params.provider,
+        url_template=params.url_template,
     )
     return {
         "status": "ok",
@@ -601,6 +609,7 @@ def init_shelf(params: InitShelfInput) -> dict:
         "name": shelf.config.name,
         "remote": shelf.config.remote,
         "branch": shelf.config.branch,
+        "provider": shelf.config.provider,
         "categories": params.default_categories,
         "next_steps": (
             "1. cd into the shelf and `git init && git remote add origin <url>` if not done yet.\n"

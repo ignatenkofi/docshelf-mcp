@@ -80,6 +80,20 @@ class ShelfConfig:
     #: inlines small splits and switches to SUBINDEX beyond the threshold.
     index_style: str = "auto"
     subindex_threshold_sections: int = DEFAULT_SUBINDEX_THRESHOLD
+    #: URL provider for generated links: "github" (default), "gitlab",
+    #: "gitea", "custom" (uses ``url_template``), or "none" (relative links).
+    provider: str = "github"
+    #: Template for ``provider="custom"`` — placeholders {owner}/{repo}/
+    #: {branch}/{path}. Covers S3, R2, or any static host.
+    url_template: str = ""
+
+    def url_for(self, relative_path: str) -> str:
+        """Resolve a shelf-relative path to a fetch URL under this config."""
+        from docshelf_mcp.core.indexer import shelf_url
+
+        return shelf_url(
+            self.provider, self.remote, self.branch, self.url_template, relative_path
+        )
 
     @classmethod
     def load(cls, shelf_root: Path) -> ShelfConfig:
@@ -178,6 +192,8 @@ class Shelf:
         remote: str = "",
         branch: str = "main",
         default_categories: Iterable[str] | None = None,
+        provider: str = "",
+        url_template: str = "",
     ) -> Shelf:
         """Create the shelf directory layout if it doesn't already exist.
 
@@ -194,6 +210,10 @@ class Shelf:
             config.remote = remote
         if branch:
             config.branch = branch
+        if provider:
+            config.provider = provider
+        if url_template:
+            config.url_template = url_template
         if default_categories:
             for cat in default_categories:
                 (self.root / "docs" / cat).mkdir(exist_ok=True)
@@ -565,6 +585,8 @@ class Shelf:
             category_order=cfg.category_order,
             index_style=cfg.index_style,
             subindex_threshold=cfg.subindex_threshold_sections,
+            provider=cfg.provider,
+            url_template=cfg.url_template,
         )
 
     def rebuild_index(self) -> Path:
@@ -572,7 +594,14 @@ class Shelf:
         document — from the on-disk state. Returns the INDEX path."""
         cfg = self.config
         entries = self.scan()
-        write_subindexes(self.root, entries, remote=cfg.remote, branch=cfg.branch)
+        write_subindexes(
+            self.root,
+            entries,
+            remote=cfg.remote,
+            branch=cfg.branch,
+            provider=cfg.provider,
+            url_template=cfg.url_template,
+        )
         index_path = self.root / "INDEX.md"
         index_path.write_text(self._index_text(entries), encoding="utf-8")
         return index_path

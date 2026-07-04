@@ -9,6 +9,7 @@ from docshelf_mcp.core.indexer import (
     build_subindex,
     raw_github_url,
     scan_shelf,
+    shelf_url,
     write_subindexes,
 )
 
@@ -217,6 +218,70 @@ def test_scan_shelf_detects_split_sections(tmp_path: Path):
 
 def test_scan_shelf_empty_returns_empty(tmp_path: Path):
     assert scan_shelf(tmp_path) == []
+
+
+def test_shelf_url_github_default():
+    assert (
+        shelf_url("github", "https://github.com/me/r", "main", "", "docs/a.md")
+        == "https://raw.githubusercontent.com/me/r/main/docs/a.md"
+    )
+
+
+def test_shelf_url_gitlab():
+    assert (
+        shelf_url("gitlab", "https://gitlab.com/grp/proj", "main", "", "docs/a.md")
+        == "https://gitlab.com/grp/proj/-/raw/main/docs/a.md"
+    )
+
+
+def test_shelf_url_gitea_self_hosted_host():
+    assert (
+        shelf_url("gitea", "https://git.example.com/u/r", "trunk", "", "docs/a.md")
+        == "https://git.example.com/u/r/raw/branch/trunk/docs/a.md"
+    )
+
+
+def test_shelf_url_custom_template():
+    tmpl = "https://cdn.example.com/{repo}/{branch}/{path}"
+    assert (
+        shelf_url("custom", "https://github.com/me/shelf", "v2", tmpl, "docs/a b.md")
+        == "https://cdn.example.com/shelf/v2/docs/a%20b.md"
+    )
+    # A template that needs no remote still works (path/branch only).
+    assert (
+        shelf_url("custom", "", "main", "https://s3/{path}", "docs/a.md")
+        == "https://s3/docs/a.md"
+    )
+
+
+def test_shelf_url_none_returns_relative():
+    assert shelf_url("none", "", "main", "", "docs/a b.md") == "docs/a%20b.md"
+
+
+def test_shelf_url_empty_when_unbuildable():
+    # gitlab/gitea need a parseable remote.
+    assert shelf_url("gitlab", "", "main", "", "docs/a.md") == ""
+    # custom with no template.
+    assert shelf_url("custom", "https://github.com/me/r", "main", "", "docs/a.md") == ""
+
+
+def test_build_index_none_provider_relative_links():
+    entries = [
+        DocumentEntry("routers", "R", "", "docs/routers/r.md", 2048),
+    ]
+    out = build_index("S", entries, provider="none")
+    # Relative link to the doc, no absolute host.
+    assert "(docs/routers/r.md)" in out
+    assert "raw.githubusercontent.com" not in out
+
+
+def test_build_subindex_gitlab_provider():
+    entry = DocumentEntry(
+        "routers", "R", "", "docs/routers/r.md", 4000,
+        section_paths=["docs/routers/r/001-a.md", "docs/routers/r/002-b.md"],
+    )
+    out = build_subindex(entry, remote="https://gitlab.com/g/p", provider="gitlab")
+    assert "gitlab.com/g/p/-/raw/main/docs/routers/r/001-a.md" in out
 
 
 def _split_entry(n_sections: int) -> DocumentEntry:

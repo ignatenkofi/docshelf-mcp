@@ -464,3 +464,36 @@ def test_shelf_without_remote_still_works(tmp_path: Path):
     assert "Sample" in text
     # No raw URL in the entry (because remote is empty).
     assert "raw.githubusercontent.com" not in text
+
+
+def test_none_provider_offline_shelf_has_relative_links(tmp_path: Path):
+    shelf = Shelf(tmp_path / "s").init(name="Offline", provider="none")
+    shelf.add_document(FIXTURE, category="docs", title="Sample", split=False)
+    text = (shelf.root / "INDEX.md").read_text()
+    # A navigable relative link, not a bare label.
+    assert "(docs/docs/sample.md)" in text
+    assert "raw.githubusercontent.com" not in text
+
+
+def test_gitlab_provider_enriches_search_and_read(tmp_path: Path):
+    from docshelf_mcp import tools as t
+
+    shelf_path = str(tmp_path / "s")
+    t.init_shelf(
+        t.InitShelfInput(
+            shelf_path=shelf_path,
+            name="GL",
+            github_remote="https://gitlab.com/grp/proj",
+            provider="gitlab",
+        )
+    )
+    t.add_document(
+        t.AddDocumentInput(
+            source_path=str(FIXTURE), category="docs", title="Sample",
+            split=False, shelf_path=shelf_path,
+        )
+    )
+    hit = t.search(t.SearchInput(query="BGP", shelf_path=shelf_path))["hits"][0]
+    assert hit["raw_url"] == (
+        "https://gitlab.com/grp/proj/-/raw/main/docs/docs/sample.md"
+    )
