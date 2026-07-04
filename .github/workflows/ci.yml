@@ -69,5 +69,5 @@ jobs:
 
       - name: Console script smoke
         run: |
-          docshelf-mcp --help 2>&1 | head -5 || true
-          echo "console script wired"
+          docshelf-mcp --version
+          docshelf-mcp --help

@@ -6,6 +6,7 @@ wrappers in `docshelf_mcp.tools` are end-to-end callable.
 """
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -358,6 +359,45 @@ def test_input_validation_rejects_empty_title():
 
     with pytest.raises(ValidationError):
         t.AddDocumentInput(source_path="x", category="y", title="")
+
+
+def test_cli_version_prints_and_exits(capsys):
+    import docshelf_mcp
+    from docshelf_mcp.server import main
+
+    with pytest.raises(SystemExit) as exc:
+        main(["--version"])
+    assert exc.value.code == 0
+    assert docshelf_mcp.__version__ in capsys.readouterr().out
+
+
+def test_cli_help_prints_and_exits(capsys):
+    from docshelf_mcp.server import main
+
+    with pytest.raises(SystemExit) as exc:
+        main(["--help"])
+    assert exc.value.code == 0
+    assert "stdio server" in capsys.readouterr().out
+
+
+def test_cli_shelf_sets_env_then_runs(monkeypatch, tmp_path):
+    from docshelf_mcp import server
+
+    monkeypatch.delenv("DOCSHELF_ROOT", raising=False)
+    ran = {"v": False}
+    monkeypatch.setattr(server.mcp, "run", lambda: ran.__setitem__("v", True))
+    server.main(["--shelf", str(tmp_path)])
+    assert os.environ["DOCSHELF_ROOT"] == str(tmp_path)
+    assert ran["v"] is True  # bare-ish invocation still starts the server
+
+
+def test_cli_no_args_starts_server(monkeypatch):
+    from docshelf_mcp import server
+
+    ran = {"v": False}
+    monkeypatch.setattr(server.mcp, "run", lambda: ran.__setitem__("v", True))
+    server.main([])  # backward compat: no args -> start server
+    assert ran["v"] is True
 
 
 def test_tools_to_json_is_human_readable():
