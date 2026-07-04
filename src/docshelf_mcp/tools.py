@@ -324,8 +324,10 @@ def add_document(params: AddDocumentInput) -> dict:
     return {
         "status": "ok",
         "shelf_root": str(shelf.root),
-        "document_path": str(result.document_path.relative_to(shelf.root)),
-        "section_paths": [str(p.relative_to(shelf.root)) for p in result.section_paths],
+        "document_path": result.document_path.relative_to(shelf.root).as_posix(),
+        "section_paths": [
+            p.relative_to(shelf.root).as_posix() for p in result.section_paths
+        ],
         "was_split": result.was_split,
         "section_count": len(result.section_paths),
         "converted_from_pdf": result.converted_from_pdf,
@@ -355,7 +357,7 @@ def add_directory(params: AddDirectoryInput) -> dict:
             added.append(
                 {
                     "file": r["file"],
-                    "document_path": str(res.document_path.relative_to(shelf.root)),
+                    "document_path": res.document_path.relative_to(shelf.root).as_posix(),
                     "was_split": res.was_split,
                     "section_count": len(res.section_paths),
                 }
@@ -411,7 +413,9 @@ def remove_document(params: RemoveDocumentInput) -> dict:
     return {
         "status": "ok",
         "shelf_root": str(shelf.root),
-        "removed_paths": [str(p.relative_to(shelf.root)) for p in result.removed_paths],
+        "removed_paths": [
+            p.relative_to(shelf.root).as_posix() for p in result.removed_paths
+        ],
         "was_split": result.was_split,
         "dry_run": result.dry_run,
         "index_path": "INDEX.md",
@@ -432,7 +436,7 @@ def rebuild_index(params: RebuildIndexInput) -> dict:
     return {
         "status": "ok",
         "shelf_root": str(shelf.root),
-        "index_path": str(index_path.relative_to(shelf.root)),
+        "index_path": index_path.relative_to(shelf.root).as_posix(),
         "document_count": len(entries),
         "category_count": len({e.category for e in entries}),
     }

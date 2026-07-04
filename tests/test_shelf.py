@@ -333,6 +333,22 @@ def test_remove_split_document_leaves_no_debris(tmp_path: Path):
     assert "Big Document" not in idx and "Keeper" in idx
 
 
+def test_remove_document_title_case_prunes_meta(tmp_path: Path):
+    # Regression: a title that differs from its slug only by case ("Doomed" ->
+    # doomed.md) must resolve to the canonical on-disk path so the .meta.json
+    # entry is pruned. On a case-insensitive filesystem (macOS/Windows) the old
+    # resolver returned "Doomed.md", which never matched the "doomed.md" key.
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    shelf.add_document(FIXTURE, category="docs", title="Doomed", split=False)
+    meta_path = shelf.root / "docs" / "docs" / ".meta.json"
+    assert "doomed.md" in json.loads(meta_path.read_text(encoding="utf-8"))
+
+    result = shelf.remove_document(category="docs", document="Doomed")
+    assert result.removed_paths[0].name == "doomed.md"  # canonical, not "Doomed.md"
+    # It was the only doc, so the emptied meta file is removed entirely.
+    assert not meta_path.exists()
+
+
 def test_remove_document_dry_run_touches_nothing(tmp_path: Path):
     shelf = Shelf(tmp_path / "s").init(name="S")
     shelf.add_document(FIXTURE, category="docs", title="Stay", split=False)

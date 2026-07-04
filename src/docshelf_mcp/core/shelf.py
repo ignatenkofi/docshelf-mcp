@@ -458,24 +458,29 @@ class Shelf:
         return RemoveResult(removed_paths=removed, was_split=was_split, dry_run=dry_run)
 
     def _resolve_document(self, category_dir: Path, document: str) -> Path | None:
-        """Find a document file by filename, slug, or (slugified) title."""
-        names = []
-        if document.endswith(".md"):
-            names.append(document)
-        else:
-            names.append(f"{document}.md")
-        slug = slugify(document, max_len=80)
-        if slug and f"{slug}.md" not in names:
-            names.append(f"{slug}.md")
+        """Find a document file by filename, slug, or (slugified) title.
 
-        for name in names:
-            candidate = category_dir / name
-            # Reject anything that resolves outside the category dir
-            # (e.g. a crafted "../../other.md").
-            if candidate.resolve().parent != category_dir.resolve():
-                continue
-            if candidate.is_file():
-                return candidate
+        Matches against the real directory entries and returns the actual
+        on-disk path. That keeps a case-insensitive filesystem (macOS /
+        Windows) from resolving ``"Doomed.md"`` to a non-canonical path that
+        no longer matches the ``doomed.md`` key in ``.meta.json``. Because only
+        real files directly inside ``category_dir`` are eligible, a crafted
+        ``"../../other.md"`` can never resolve to anything.
+        """
+        candidates = [document if document.endswith(".md") else f"{document}.md"]
+        slug = slugify(document, max_len=80)
+        if slug:
+            candidates.append(f"{slug}.md")
+
+        existing = {p.name: p for p in category_dir.glob("*.md") if p.is_file()}
+        for name in candidates:  # exact (case-sensitive) match wins
+            if name in existing:
+                return existing[name]
+        lower = {n.lower(): p for n, p in existing.items()}
+        for name in candidates:  # then case-insensitive
+            hit = lower.get(name.lower())
+            if hit is not None:
+                return hit
         return None
 
     def _prune_category_meta(self, category_dir: Path, filename: str) -> None:
