@@ -111,6 +111,66 @@ def test_split_document_gets_subindex(tmp_path: Path):
     )
 
 
+def test_add_document_rebuilds_index_exactly_once(tmp_path: Path, monkeypatch):
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    calls = {"n": 0}
+    real = shelf.rebuild_index
+    monkeypatch.setattr(shelf, "rebuild_index", lambda: (calls.__setitem__("n", calls["n"] + 1), real())[1])
+
+    shelf.add_document(FIXTURE, category="docs", title="One", split=False)
+    assert calls["n"] == 1  # not 2 — the tools layer no longer double-rebuilds
+
+
+def test_add_document_defer_rebuild(tmp_path: Path, monkeypatch):
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    calls = {"n": 0}
+    monkeypatch.setattr(shelf, "rebuild_index", lambda: calls.__setitem__("n", calls["n"] + 1))
+    shelf.add_document(FIXTURE, category="docs", title="One", split=False, rebuild_index=False)
+    assert calls["n"] == 0
+
+
+def test_add_directory_ingests_all_and_rebuilds_once(tmp_path: Path, monkeypatch):
+    src = tmp_path / "incoming"
+    src.mkdir()
+    for i in range(3):
+        (src / f"doc-{i}.md").write_text(f"# Doc {i}\n\nbody {i}\n", encoding="utf-8")
+    (src / "notes.txt").write_text("ignored", encoding="utf-8")  # not matched
+
+    shelf = Shelf(tmp_path / "s").init(name="S", remote="https://github.com/me/r")
+    calls = {"n": 0}
+    real = shelf.rebuild_index
+    monkeypatch.setattr(shelf, "rebuild_index", lambda: (calls.__setitem__("n", calls["n"] + 1), real())[1])
+
+    results = shelf.add_directory(src, category="docs")
+    assert [r["status"] for r in results] == ["ok", "ok", "ok"]
+    assert calls["n"] == 1  # single rebuild for the whole batch
+    idx = (shelf.root / "INDEX.md").read_text(encoding="utf-8")
+    assert "Doc 0" in idx and "Doc 1" in idx and "Doc 2" in idx
+
+
+def test_add_directory_reports_per_file_failure(tmp_path: Path):
+    src = tmp_path / "incoming"
+    src.mkdir()
+    (src / "good.md").write_text("# Good\n\nok\n", encoding="utf-8")
+    # A .pdf that isn't a real PDF -> conversion fails for just this file.
+    (src / "broken.pdf").write_text("not really a pdf", encoding="utf-8")
+
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    results = shelf.add_directory(src, category="docs")
+    by_file = {r["file"]: r for r in results}
+    assert by_file["good.md"]["status"] == "ok"
+    assert by_file["broken.pdf"]["status"] == "error"
+    # The good file still landed despite the sibling failure.
+    assert (shelf.root / "docs" / "docs" / "good.md").is_file()
+    assert "Good" in (shelf.root / "INDEX.md").read_text(encoding="utf-8")
+
+
+def test_add_directory_missing_dir_raises(tmp_path: Path):
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    with pytest.raises(FileNotFoundError):
+        shelf.add_directory(tmp_path / "nope", category="docs")
+
+
 def test_add_document_unsupported_type(tmp_path: Path):
     shelf = Shelf(tmp_path / "s").init(name="S")
     bad = tmp_path / "junk.txt"

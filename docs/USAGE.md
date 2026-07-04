@@ -59,6 +59,22 @@ Add a PDF or Markdown file to the shelf.
 
 The response includes `document_path`, `section_paths`, and `next_steps` (the suggested git command).
 
+### `docshelf_add_directory`
+
+Onboard a whole folder in one call. Scans `source_dir` (non-recursively) for `patterns` (PDFs and Markdown by default), adds each file under `category` with a title derived from its filename, and rebuilds `INDEX.md` **once** for the whole batch.
+
+```jsonc
+{
+  "source_dir": "/Users/me/Downloads/manuals",
+  "category": "routers",
+  "patterns": ["*.pdf", "*.md"],
+  "split": true,
+  "quality": "fast"
+}
+```
+
+The response reports `added` and `failed` per file — one corrupt PDF is listed under `failed` without aborting the rest of the import.
+
 ### `docshelf_remove_document`
 
 Remove a document — its file, its split-section directory, and its `.meta.json` entry. `INDEX.md` is regenerated automatically. `document` accepts the filename, the slug, or the human title used at add time.

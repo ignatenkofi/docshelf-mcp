@@ -17,12 +17,13 @@ FIXTURE = Path(__file__).parent / "fixtures" / "sample.md"
 
 
 @pytest.mark.asyncio
-async def test_server_exposes_seven_tools():
+async def test_server_exposes_eight_tools():
     tool_list = await mcp.list_tools()
     names = sorted(tool.name for tool in tool_list)
     assert names == sorted(
         [
             "docshelf_add_document",
+            "docshelf_add_directory",
             "docshelf_convert_pdf",
             "docshelf_init_shelf",
             "docshelf_list_documents",
@@ -85,6 +86,37 @@ def test_add_document_wrapper_then_search(tmp_path: Path):
     )
     assert fallback_out["match_mode"] == "any"
     assert fallback_out["match_count"] >= 1
+
+
+def test_add_directory_wrapper(tmp_path: Path):
+    shelf_path = str(tmp_path / "s")
+    t.init_shelf(t.InitShelfInput(shelf_path=shelf_path, name="T"))
+    src = tmp_path / "in"
+    src.mkdir()
+    (src / "a.md").write_text("# A\n\nalpha\n", encoding="utf-8")
+    (src / "b.md").write_text("# B\n\nbeta\n", encoding="utf-8")
+
+    out = t.add_directory(
+        t.AddDirectoryInput(source_dir=str(src), category="docs", shelf_path=shelf_path)
+    )
+    assert out["status"] == "ok"
+    assert out["added_count"] == 2 and out["failed_count"] == 0
+    assert {a["file"] for a in out["added"]} == {"a.md", "b.md"}
+
+
+def test_add_directory_wrapper_reports_failures(tmp_path: Path):
+    shelf_path = str(tmp_path / "s")
+    t.init_shelf(t.InitShelfInput(shelf_path=shelf_path, name="T"))
+    src = tmp_path / "in"
+    src.mkdir()
+    (src / "ok.md").write_text("# Ok\n\ntext\n", encoding="utf-8")
+    (src / "bad.pdf").write_text("not a pdf", encoding="utf-8")
+
+    out = t.add_directory(
+        t.AddDirectoryInput(source_dir=str(src), category="docs", shelf_path=shelf_path)
+    )
+    assert out["added_count"] == 1 and out["failed_count"] == 1
+    assert out["failed"][0]["file"] == "bad.pdf"
 
 
 def test_remove_document_wrapper(tmp_path: Path):

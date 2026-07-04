@@ -35,6 +35,7 @@ from docshelf_mcp.core.indexer import (
     DEFAULT_SUBINDEX_THRESHOLD,
     SUBINDEX_FILENAME,
     DocumentEntry,
+    _title_from_filename,
     build_index,
     scan_shelf,
     write_subindexes,
@@ -189,6 +190,7 @@ class Shelf:
         description: str = "",
         split: bool = True,
         quality: Quality = "fast",
+        rebuild_index: bool = True,
     ) -> AddResult:
         """Add (or replace) a document in the shelf.
 
@@ -200,6 +202,10 @@ class Shelf:
             split: If True (default) and the document is large enough, split it
                 by H2 into a sibling subdirectory.
             quality: PDF conversion quality preset (``"fast"`` or ``"high"``).
+            rebuild_index: If True (default), regenerate INDEX.md after writing
+                the document. Batch callers can pass False and call
+                :meth:`rebuild_index` once at the end for O(N) instead of
+                O(N²) index rebuilds.
 
         Returns:
             :class:`AddResult` with the on-disk paths.
@@ -255,9 +261,9 @@ class Shelf:
         self._update_category_meta(category_dir, doc_path.name, title, description)
 
         # Auto-rebuild INDEX.md so the on-disk state and the index stay in sync.
-        # Callers that need batch performance can short-circuit by going one
-        # layer down (write files manually, then call rebuild_index once).
-        self.rebuild_index()
+        # Batch callers pass rebuild_index=False and rebuild once at the end.
+        if rebuild_index:
+            self.rebuild_index()
 
         return AddResult(
             document_path=doc_path,
@@ -265,6 +271,74 @@ class Shelf:
             was_split=was_split,
             converted_from_pdf=converted_from_pdf,
         )
+
+    # ------------------------------------------------------ add directory
+
+    def add_directory(
+        self,
+        source_dir: Path | str,
+        *,
+        category: str,
+        pattern: Iterable[str] = ("*.pdf", "*.md"),
+        split: bool = True,
+        quality: Quality = "fast",
+    ) -> list[dict]:
+        """Add every matching file in a directory, rebuilding the index once.
+
+        Each file's title defaults to a humanized version of its filename
+        stem. Files are processed in sorted order; a per-file failure (e.g. a
+        corrupt PDF) is captured and reported, and the remaining files are
+        still ingested.
+
+        Args:
+            source_dir: Directory to scan (non-recursive).
+            category: Category bucket for every file. Created if missing.
+            pattern: Glob patterns to include. Defaults to PDFs and Markdown.
+            split: Passed through to :meth:`add_document`.
+            quality: PDF conversion quality preset.
+
+        Returns:
+            One result dict per file, each with ``file`` and ``status``
+            (``"ok"`` or ``"error"``); ``ok`` entries carry the
+            :class:`AddResult`, ``error`` entries carry an ``error`` string.
+
+        Raises:
+            FileNotFoundError: ``source_dir`` doesn't exist or isn't a directory.
+        """
+        source_dir = Path(source_dir).expanduser().resolve()
+        if not source_dir.is_dir():
+            raise FileNotFoundError(f"Not a directory: {source_dir}")
+
+        matches: list[Path] = []
+        seen: set[Path] = set()
+        for pat in pattern:
+            for p in source_dir.glob(pat):
+                if p.is_file() and p not in seen:
+                    seen.add(p)
+                    matches.append(p)
+        matches.sort()
+
+        results: list[dict] = []
+        for path in matches:
+            title = _title_from_filename(path.stem)
+            try:
+                result = self.add_document(
+                    path,
+                    category=category,
+                    title=title,
+                    split=split,
+                    quality=quality,
+                    rebuild_index=False,  # defer — rebuild once below
+                )
+                results.append({"file": path.name, "status": "ok", "result": result})
+            except Exception as exc:  # noqa: BLE001 — one bad file must not abort the batch
+                results.append(
+                    {"file": path.name, "status": "error", "error": str(exc)}
+                )
+
+        # A single rebuild reflects every successfully-added file.
+        self.rebuild_index()
+        return results
 
     # ------------------------------------------------------ remove document
 

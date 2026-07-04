@@ -104,6 +104,30 @@ def add_document(params: t.AddDocumentInput) -> str:
 
 
 @mcp.tool(
+    name="docshelf_add_directory",
+    annotations={
+        "title": "Add every document in a directory",
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+)
+def add_directory(params: t.AddDirectoryInput) -> str:
+    """Add every matching file in a directory, rebuilding INDEX.md once.
+
+    Scans ``source_dir`` (non-recursively) for ``patterns`` (PDFs and
+    Markdown by default), adds each under ``category`` with a title derived
+    from its filename, and regenerates INDEX.md a single time. A corrupt or
+    unreadable file is reported in ``failed`` without aborting the batch.
+    """
+    try:
+        return _serialize(t.add_directory(params))
+    except Exception as exc:
+        return _error_response(exc, "add_directory")
+
+
+@mcp.tool(
     name="docshelf_remove_document",
     annotations={
         "title": "Remove a document from the shelf",

@@ -28,6 +28,7 @@ from docshelf_mcp.core.splitter import (
 
 __all__ = [
     "AddDocumentInput",
+    "AddDirectoryInput",
     "RemoveDocumentInput",
     "RebuildIndexInput",
     "SearchInput",
@@ -36,6 +37,7 @@ __all__ = [
     "InitShelfInput",
     "NotAShelfError",
     "add_document",
+    "add_directory",
     "remove_document",
     "rebuild_index",
     "search",
@@ -120,6 +122,40 @@ class AddDocumentInput(_BaseInput):
         default="fast",
         description="PDF conversion quality: 'fast' (pymupdf4llm, default) or "
         "'high' (marker-pdf, requires optional install).",
+    )
+    shelf_path: str | None = Field(
+        default=None,
+        description="Path to the shelf root directory. Defaults to $DOCSHELF_ROOT "
+        "or the server's working directory.",
+    )
+
+
+class AddDirectoryInput(_BaseInput):
+    """Input for ``add_directory``."""
+
+    source_dir: str = Field(
+        ...,
+        description="Directory to scan (non-recursive) for documents to add.",
+        min_length=1,
+    )
+    category: str = Field(
+        ...,
+        description="Category bucket for every file found. Created if missing.",
+        min_length=1,
+        max_length=80,
+    )
+    patterns: list[str] = Field(
+        default_factory=lambda: ["*.pdf", "*.md"],
+        description="Glob patterns to include. Defaults to PDFs and Markdown.",
+        max_length=16,
+    )
+    split: bool = Field(
+        default=True,
+        description="Auto-split large documents (>50 KB) by H2 heading.",
+    )
+    quality: Quality = Field(
+        default="fast",
+        description="PDF conversion quality: 'fast' (default) or 'high'.",
     )
     shelf_path: str | None = Field(
         default=None,
@@ -256,7 +292,7 @@ def add_document(params: AddDocumentInput) -> dict:
         split=params.split,
         quality=params.quality,
     )
-    shelf.rebuild_index()
+    # Shelf.add_document already rebuilt INDEX.md — no second rebuild here.
     return {
         "status": "ok",
         "shelf_root": str(shelf.root),
@@ -269,6 +305,48 @@ def add_document(params: AddDocumentInput) -> dict:
         "next_steps": (
             f"Commit the changes ('git add . && git commit -m \"docs: add {params.title}\"') "
             "to make the new entry visible via raw URLs."
+        ),
+    }
+
+
+def add_directory(params: AddDirectoryInput) -> dict:
+    """Implementation of the ``add_directory`` MCP tool."""
+    shelf = _resolve_shelf(params.shelf_path)
+    results = shelf.add_directory(
+        params.source_dir,
+        category=params.category,
+        pattern=params.patterns,
+        split=params.split,
+        quality=params.quality,
+    )
+
+    added, failed = [], []
+    for r in results:
+        if r["status"] == "ok":
+            res = r["result"]
+            added.append(
+                {
+                    "file": r["file"],
+                    "document_path": str(res.document_path.relative_to(shelf.root)),
+                    "was_split": res.was_split,
+                    "section_count": len(res.section_paths),
+                }
+            )
+        else:
+            failed.append({"file": r["file"], "error": r["error"]})
+
+    return {
+        "status": "ok",
+        "shelf_root": str(shelf.root),
+        "category": params.category,
+        "added_count": len(added),
+        "failed_count": len(failed),
+        "added": added,
+        "failed": failed,
+        "index_path": "INDEX.md",
+        "next_steps": (
+            "Commit the changes ('git add . && git commit') to publish the new "
+            "entries via raw URLs."
         ),
     }
 
