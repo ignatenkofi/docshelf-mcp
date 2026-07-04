@@ -10,6 +10,18 @@ The MCP server resolves the shelf root in this order:
 2. The `DOCSHELF_ROOT` environment variable.
 3. The current working directory.
 
+Every tool **except** `docshelf_init_shelf` (and `docshelf_convert_pdf`, which doesn't use a shelf) requires the resolved root to be an initialized shelf — i.e. to contain a `.docshelf.json`. If it doesn't, the tool returns a structured error (`type: "NotAShelfError"`) instead of silently scaffolding a shelf in the wrong directory:
+
+```jsonc
+{
+  "status": "error",
+  "type": "NotAShelfError",
+  "error": "/some/dir is not an initialized docshelf (no .docshelf.json). Run init_shelf to create a shelf there, or set DOCSHELF_ROOT / pass shelf_path to point at an existing shelf."
+}
+```
+
+Run `docshelf_init_shelf` once (it's the only tool that scaffolds), or point `shelf_path` / `DOCSHELF_ROOT` at an existing shelf.
+
 For Claude Desktop, set `DOCSHELF_ROOT` in the server's env block — see the [README](../README.md#1-add-to-claude-desktop) for a JSON snippet.
 
 ## Tools

@@ -39,6 +39,19 @@ def _serialize(payload: Any) -> str:
     return t.to_json(payload)
 
 
+def _error_response(exc: Exception, tool: str) -> str:
+    """Serialize an exception as the standard error dict.
+
+    Expected user errors (e.g. targeting a non-shelf) log a one-line warning;
+    everything else logs a full traceback for debugging.
+    """
+    if isinstance(exc, t.NotAShelfError):
+        logger.warning("%s: %s", tool, exc)
+    else:
+        logger.exception("%s failed", tool)
+    return _serialize({"status": "error", "error": str(exc), "type": type(exc).__name__})
+
+
 @mcp.tool(
     name="docshelf_init_shelf",
     annotations={
@@ -61,8 +74,7 @@ def init_shelf(params: t.InitShelfInput) -> str:
     try:
         return _serialize(t.init_shelf(params))
     except Exception as exc:
-        logger.exception("init_shelf failed")
-        return _serialize({"status": "error", "error": str(exc), "type": type(exc).__name__})
+        return _error_response(exc, "init_shelf")
 
 
 @mcp.tool(
@@ -88,8 +100,7 @@ def add_document(params: t.AddDocumentInput) -> str:
     try:
         return _serialize(t.add_document(params))
     except Exception as exc:
-        logger.exception("add_document failed")
-        return _serialize({"status": "error", "error": str(exc), "type": type(exc).__name__})
+        return _error_response(exc, "add_document")
 
 
 @mcp.tool(
@@ -113,8 +124,7 @@ def remove_document(params: t.RemoveDocumentInput) -> str:
     try:
         return _serialize(t.remove_document(params))
     except Exception as exc:
-        logger.exception("remove_document failed")
-        return _serialize({"status": "error", "error": str(exc), "type": type(exc).__name__})
+        return _error_response(exc, "remove_document")
 
 
 @mcp.tool(
@@ -135,8 +145,7 @@ def rebuild_index(params: t.RebuildIndexInput) -> str:
     try:
         return _serialize(t.rebuild_index(params))
     except Exception as exc:
-        logger.exception("rebuild_index failed")
-        return _serialize({"status": "error", "error": str(exc), "type": type(exc).__name__})
+        return _error_response(exc, "rebuild_index")
 
 
 @mcp.tool(
@@ -162,8 +171,7 @@ def search(params: t.SearchInput) -> str:
     try:
         return _serialize(t.search(params))
     except Exception as exc:
-        logger.exception("search failed")
-        return _serialize({"status": "error", "error": str(exc), "type": type(exc).__name__})
+        return _error_response(exc, "search")
 
 
 @mcp.tool(
@@ -184,8 +192,7 @@ def list_documents(params: t.ListDocumentsInput) -> str:
     try:
         return _serialize(t.list_documents(params))
     except Exception as exc:
-        logger.exception("list_documents failed")
-        return _serialize({"status": "error", "error": str(exc), "type": type(exc).__name__})
+        return _error_response(exc, "list_documents")
 
 
 @mcp.tool(
@@ -207,8 +214,7 @@ def convert_pdf(params: t.ConvertPdfInput) -> str:
     try:
         return _serialize(t.convert_pdf(params))
     except Exception as exc:
-        logger.exception("convert_pdf failed")
-        return _serialize({"status": "error", "error": str(exc), "type": type(exc).__name__})
+        return _error_response(exc, "convert_pdf")
 
 
 def main() -> None:

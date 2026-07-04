@@ -18,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from docshelf_mcp.config import default_shelf_root
 from docshelf_mcp.core.converter import Quality, pdf_to_markdown
-from docshelf_mcp.core.shelf import Shelf
+from docshelf_mcp.core.shelf import SHELF_METADATA_FILENAME, Shelf
 from docshelf_mcp.core.splitter import (
     clean_markdown,
     should_split,
@@ -34,6 +34,7 @@ __all__ = [
     "ListDocumentsInput",
     "ConvertPdfInput",
     "InitShelfInput",
+    "NotAShelfError",
     "add_document",
     "remove_document",
     "rebuild_index",
@@ -44,8 +45,31 @@ __all__ = [
 ]
 
 
+class NotAShelfError(Exception):
+    """A shelf tool was pointed at a directory that isn't an initialized shelf.
+
+    Raised by :func:`_resolve_shelf` so tools never silently scaffold a shelf
+    in whatever directory the server happens to be running in. ``init_shelf``
+    (the scaffolder) and ``convert_pdf`` (no shelf) don't resolve a shelf, so
+    they are unaffected.
+    """
+
+
 def _resolve_shelf(shelf_path: str | None) -> Shelf:
-    return Shelf(Path(shelf_path).expanduser() if shelf_path else default_shelf_root())
+    """Resolve the target shelf, requiring it to already be initialized.
+
+    Raises:
+        NotAShelfError: The resolved root has no ``.docshelf.json``.
+    """
+    shelf = Shelf(Path(shelf_path).expanduser() if shelf_path else default_shelf_root())
+    if not (shelf.root / SHELF_METADATA_FILENAME).is_file():
+        raise NotAShelfError(
+            f"{shelf.root} is not an initialized docshelf "
+            f"(no {SHELF_METADATA_FILENAME}). Run init_shelf to create a shelf "
+            f"there, or set DOCSHELF_ROOT / pass shelf_path to point at an "
+            f"existing shelf."
+        )
+    return shelf
 
 
 class _BaseInput(BaseModel):
