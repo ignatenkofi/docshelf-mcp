@@ -171,6 +171,30 @@ def test_add_directory_missing_dir_raises(tmp_path: Path):
         shelf.add_directory(tmp_path / "nope", category="docs")
 
 
+def test_add_document_surfaces_section_warnings(tmp_path: Path):
+    # A big doc with one clean chapter and one junk (unit-fragment) heading.
+    filler = "Body sentence for padding purposes here. " * 700
+    big = tmp_path / "big.md"
+    big.write_text(
+        "# Manual\n\n"
+        "## Overview\n\n" + filler + "\n\n"
+        "## 2.5 Gb/s. Full duplex operation is supported.\n\n" + filler + "\n",
+        encoding="utf-8",
+    )
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    result = shelf.add_document(big, category="net", title="Manual", split=True)
+    assert result.was_split
+    rules = {w.rule for w in result.warnings}
+    assert "unit-fragment" in rules
+    # The clean "Overview" heading is not flagged.
+    assert all("Overview" not in w.heading for w in result.warnings)
+
+    # lint_shelf re-derives the same warnings from disk.
+    disk = shelf.lint_shelf()
+    key = next(iter(disk))
+    assert any(w.rule == "unit-fragment" for w in disk[key])
+
+
 def test_add_document_unsupported_type(tmp_path: Path):
     shelf = Shelf(tmp_path / "s").init(name="S")
     bad = tmp_path / "junk.txt"

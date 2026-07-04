@@ -43,7 +43,9 @@ from docshelf_mcp.core.indexer import (
 from docshelf_mcp.core.slugify import slugify
 from docshelf_mcp.core.splitter import (
     DEFAULT_SPLIT_THRESHOLD_BYTES,
+    SectionWarning,
     clean_markdown,
+    lint_sections,
     should_split,
     split_by_h2,
     write_split_files,
@@ -92,6 +94,8 @@ class AddResult:
     section_paths: list[Path]
     was_split: bool
     converted_from_pdf: bool
+    #: Heuristic warnings about suspicious section headings (detection only).
+    warnings: list[SectionWarning] = field(default_factory=list)
 
 
 @dataclass
@@ -257,12 +261,14 @@ class Shelf:
 
         section_paths: list[Path] = []
         was_split = False
+        warnings: list[SectionWarning] = []
         split_dir = category_dir / doc_stem
         if split and should_split(cleaned, self.config.split_threshold_bytes):
             sections = split_by_h2(cleaned)
             if len(sections) >= 2:
                 section_paths = write_split_files(sections, split_dir)
                 was_split = True
+                warnings = lint_sections(sections)
         elif split_dir.is_dir():
             # Document is no longer large enough — wipe the stale split.
             import shutil
@@ -282,6 +288,7 @@ class Shelf:
             section_paths=section_paths,
             was_split=was_split,
             converted_from_pdf=converted_from_pdf,
+            warnings=warnings,
         )
 
     # ------------------------------------------------------ add directory
@@ -543,6 +550,29 @@ class Shelf:
         index_path = self.root / "INDEX.md"
         index_path.write_text(text, encoding="utf-8")
         return index_path
+
+    def lint_shelf(self) -> dict[str, list[SectionWarning]]:
+        """Scan every split document for suspicious section headings.
+
+        Re-splits each split document's parent ``.md`` (the same input the
+        original split saw) and runs :func:`lint_sections`, so the result
+        matches what :meth:`add_document` reported. Returns a mapping of
+        document relative path → warnings, omitting documents with none.
+        """
+        result: dict[str, list[SectionWarning]] = {}
+        for entry in self.scan():
+            if not entry.section_paths:
+                continue
+            try:
+                text = (self.root / entry.relative_path).read_text(
+                    encoding="utf-8", errors="replace"
+                )
+            except OSError:
+                continue
+            warnings = lint_sections(split_by_h2(text))
+            if warnings:
+                result[entry.relative_path] = warnings
+        return result
 
     # ------------------------------------------------------------- search
 

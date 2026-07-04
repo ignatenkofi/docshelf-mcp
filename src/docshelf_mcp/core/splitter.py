@@ -25,6 +25,7 @@ from __future__ import annotations
 import re
 import shutil
 from collections.abc import Iterable, Iterator
+from dataclasses import dataclass
 from pathlib import Path
 
 from docshelf_mcp.core.slugify import slugify
@@ -34,6 +35,8 @@ __all__ = [
     "split_by_h2",
     "write_split_files",
     "should_split",
+    "lint_sections",
+    "SectionWarning",
 ]
 
 # Heuristic for "this `# ...` line is not really a chapter heading":
@@ -221,3 +224,102 @@ def write_split_files(
         path.write_text(body, encoding="utf-8")
         written.append(path)
     return written
+
+
+# --------------------------------------------------------------- section lint
+
+#: A run of dotted leaders (``......``) as a table-of-contents artefact leaks in.
+_TOC_LEADER_RE = re.compile(r"\.{4,}|(?:\.\s){3,}")
+#: A leading section number like ``2.5`` / ``5.6.1`` followed by the heading text.
+_LEADING_NUMBER_RE = re.compile(r"^\d+(?:\.\d+)*\s+(.*)$")
+#: A bare measurement/token that reads like body text, not a chapter title.
+_SENTENCE_TAIL_RE = re.compile(r"\.\s+\w")
+
+
+@dataclass
+class SectionWarning:
+    """A heuristic warning that a split section's heading looks like junk.
+
+    ``index`` is the 1-based section number — it matches the ``NNN`` prefix
+    that :func:`write_split_files` assigns, so a warning maps straight onto a
+    section file.
+    """
+
+    index: int
+    heading: str
+    rule: str
+    detail: str
+
+
+def _looks_like_toc_leak(title: str) -> bool:
+    return bool(_TOC_LEADER_RE.search(title))
+
+
+def _looks_like_unit_fragment(title: str) -> bool:
+    # A real heading may start with a section number ("2.5 Bridging"); the junk
+    # case is a number followed by prose that runs into a sentence
+    # ("2.5 Gb/s. Full duplex is supported.").
+    m = _LEADING_NUMBER_RE.match(title)
+    if not m:
+        return False
+    rest = m.group(1).strip()
+    return bool(_SENTENCE_TAIL_RE.search(rest) or rest.endswith("."))
+
+
+def _looks_like_table_residue(title: str) -> bool:
+    if "|" in title or "\t" in title:
+        return True
+    tokens = title.split()
+    if len(tokens) < 3:
+        return False
+    numeric = sum(1 for t in tokens if re.fullmatch(r"[\d.,%/+-]+", t))
+    return numeric / len(tokens) > 0.5
+
+
+def _normalize_title(title: str) -> str:
+    return re.sub(r"\W+", " ", title.lower()).strip()
+
+
+def lint_sections(sections: list[tuple[str, str]]) -> list[SectionWarning]:
+    """Flag split sections whose heading looks like a PDF-extraction artefact.
+
+    Detection only — nothing is rewritten or dropped. Rules:
+
+    * ``toc-leak`` — dotted table-of-contents leader (``5.6 LTR ....... 42``).
+    * ``unit-fragment`` — a body sentence mistaken for a heading
+      (``2.5 Gb/s. Full duplex ...``).
+    * ``table-residue`` — a table row (pipes, tabs, or mostly numbers).
+    * ``near-duplicate`` — a heading whose normalized form repeats an earlier
+      section in the same document.
+
+    Args:
+        sections: Output of :func:`split_by_h2` — the same list handed to
+            :func:`write_split_files`, so warning ``index`` values line up with
+            the written ``NNN-*.md`` files.
+
+    Returns:
+        Warnings in section order.
+    """
+    warnings: list[SectionWarning] = []
+    seen: dict[str, int] = {}
+    for idx, (title, _body) in enumerate(sections, start=1):
+        if title == "preamble":
+            continue
+        if _looks_like_toc_leak(title):
+            warnings.append(SectionWarning(idx, title, "toc-leak",
+                "heading contains a dotted table-of-contents leader"))
+        elif _looks_like_unit_fragment(title):
+            warnings.append(SectionWarning(idx, title, "unit-fragment",
+                "heading reads like a body sentence, not a chapter title"))
+        elif _looks_like_table_residue(title):
+            warnings.append(SectionWarning(idx, title, "table-residue",
+                "heading looks like a table row (pipes/tabs or mostly numbers)"))
+
+        norm = _normalize_title(title)
+        if norm:
+            if norm in seen:
+                warnings.append(SectionWarning(idx, title, "near-duplicate",
+                    f"heading duplicates section {seen[norm]:03d}"))
+            else:
+                seen[norm] = idx
+    return warnings

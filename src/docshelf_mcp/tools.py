@@ -309,6 +309,10 @@ class InitShelfInput(_BaseInput):
 # --------------------------------------------------------------- wrappers
 
 
+def _warning_dict(w) -> dict:
+    return {"index": w.index, "heading": w.heading, "rule": w.rule, "detail": w.detail}
+
+
 def add_document(params: AddDocumentInput) -> dict:
     """Implementation of the ``add_document`` MCP tool."""
     shelf = _resolve_shelf(params.shelf_path)
@@ -331,6 +335,8 @@ def add_document(params: AddDocumentInput) -> dict:
         "was_split": result.was_split,
         "section_count": len(result.section_paths),
         "converted_from_pdf": result.converted_from_pdf,
+        "warning_count": len(result.warnings),
+        "warnings": [_warning_dict(w) for w in result.warnings],
         "index_path": "INDEX.md",
         "next_steps": (
             f"Commit the changes ('git add . && git commit -m \"docs: add {params.title}\"') "
@@ -433,12 +439,19 @@ def rebuild_index(params: RebuildIndexInput) -> dict:
     shelf = _resolve_shelf(params.shelf_path)
     index_path = shelf.rebuild_index()
     entries = shelf.scan()
+    warnings = [
+        {"document": doc, **_warning_dict(w)}
+        for doc, ws in shelf.lint_shelf().items()
+        for w in ws
+    ]
     return {
         "status": "ok",
         "shelf_root": str(shelf.root),
         "index_path": index_path.relative_to(shelf.root).as_posix(),
         "document_count": len(entries),
         "category_count": len({e.category for e in entries}),
+        "warning_count": len(warnings),
+        "warnings": warnings,
     }
 
 

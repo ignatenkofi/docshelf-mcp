@@ -57,7 +57,7 @@ Add a PDF or Markdown file to the shelf.
 }
 ```
 
-The response includes `document_path`, `section_paths`, and `next_steps` (the suggested git command).
+The response includes `document_path`, `section_paths`, and `next_steps` (the suggested git command). When a document is split, the response also carries `warnings` (+ `warning_count`) — heuristic flags for section headings that look like PDF-extraction artefacts (`toc-leak`, `unit-fragment`, `table-residue`, `near-duplicate`). These are detection only; nothing is rewritten. `rebuild_index` reports the same warnings across the whole shelf.
 
 ### `docshelf_add_directory`
 
