@@ -295,6 +295,74 @@ def test_add_document_collision_does_not_convert_source(tmp_path: Path, monkeypa
     assert calls["n"] == 0  # conversion never ran
 
 
+def test_add_document_warns_on_empty_conversion(tmp_path: Path):
+    # A source that converts to (almost) no text — the scanned/image-only PDF
+    # signature — is flagged but still written.
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    empty = tmp_path / "scan.md"
+    empty.write_text("   \n\n\t\n", encoding="utf-8")
+    result = shelf.add_document(empty, category="c", title="Scanned PDF", split=False)
+
+    assert any(w.rule == "empty-conversion" for w in result.warnings)
+    # The file is still on disk (detection, not rejection).
+    assert result.document_path.is_file()
+
+
+def test_add_document_normal_doc_has_no_empty_warning(tmp_path: Path):
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    result = shelf.add_document(FIXTURE, category="c", title="Real Doc", split=False)
+    assert not any(w.rule == "empty-conversion" for w in result.warnings)
+
+
+def test_add_document_title_only_source_is_empty(tmp_path: Path):
+    # A source that is just a heading with no body reads as empty.
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    doc = tmp_path / "titleonly.md"
+    doc.write_text("# Just A Title\n", encoding="utf-8")
+    result = shelf.add_document(doc, category="c", title="Just A Title", split=False)
+    assert any(w.rule == "empty-conversion" for w in result.warnings)
+
+
+def test_atomic_write_leaves_previous_file_on_failure(tmp_path: Path, monkeypatch):
+    # An interrupted atomic write must not corrupt the existing target, and must
+    # leave no stray temp files behind.
+    import os as _os
+
+    from docshelf_mcp.core.fsutil import atomic_write_text
+
+    target = tmp_path / "keep.json"
+    target.write_text('{"good": true}\n', encoding="utf-8")
+
+    monkeypatch.setattr(
+        "docshelf_mcp.core.fsutil.os.replace",
+        lambda *a, **k: (_ for _ in ()).throw(OSError("boom")),
+    )
+    with pytest.raises(OSError):
+        atomic_write_text(target, "TORN NEW CONTENT")
+
+    # Old content intact, and no `.keep.json.*.tmp` debris remains.
+    assert target.read_text(encoding="utf-8") == '{"good": true}\n'
+    leftovers = [p.name for p in tmp_path.iterdir() if p.name != "keep.json"]
+    assert leftovers == [], f"temp files left behind: {leftovers}"
+    assert _os  # keep import used on all platforms
+
+
+def test_config_and_meta_survive_interrupted_index_write(tmp_path: Path, monkeypatch):
+    # Simulate a crash during a rebuild: the pre-existing INDEX.md must remain
+    # the last-good version, not an empty/torn file.
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    shelf.add_document(FIXTURE, category="c", title="One", split=False)
+    good_index = (shelf.root / "INDEX.md").read_text(encoding="utf-8")
+
+    monkeypatch.setattr(
+        "docshelf_mcp.core.fsutil.os.replace",
+        lambda *a, **k: (_ for _ in ()).throw(OSError("disk full")),
+    )
+    with pytest.raises(OSError):
+        shelf.rebuild_index()
+    assert (shelf.root / "INDEX.md").read_text(encoding="utf-8") == good_index
+
+
 def test_add_document_unsupported_type(tmp_path: Path):
     shelf = Shelf(tmp_path / "s").init(name="S")
     bad = tmp_path / "junk.txt"

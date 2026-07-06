@@ -35,6 +35,7 @@ from docshelf_mcp.core.converter import (
     Quality,
     source_to_markdown,
 )
+from docshelf_mcp.core.fsutil import atomic_write_text
 from docshelf_mcp.core.indexer import (
     DEFAULT_PREAMBLE,
     DEFAULT_SUBINDEX_THRESHOLD,
@@ -51,6 +52,7 @@ from docshelf_mcp.core.splitter import (
     SectionWarning,
     _expected_split_names,
     clean_markdown,
+    is_empty_conversion,
     lint_sections,
     should_split,
     split_by_h2,
@@ -143,7 +145,7 @@ class ShelfConfig:
 
     def save(self, shelf_root: Path) -> None:
         meta_path = shelf_root / SHELF_METADATA_FILENAME
-        meta_path.write_text(json.dumps(asdict(self), indent=2) + "\n", encoding="utf-8")
+        atomic_write_text(meta_path, json.dumps(asdict(self), indent=2) + "\n")
 
 
 @dataclass
@@ -359,20 +361,37 @@ class Shelf:
         converted_from_pdf = suffix == ".pdf"
 
         cleaned = clean_markdown(raw_md)
+
+        # Flag a conversion that came back with (almost) no text — the typical
+        # signature of a scanned / image-only source. Detection only: the file
+        # is still written so the caller can decide what to do (e.g. re-run with
+        # quality="high" / OCR). Measured before the title is prepended.
+        warnings: list[SectionWarning] = []
+        if is_empty_conversion(cleaned):
+            warnings.append(
+                SectionWarning(
+                    index=0,
+                    heading="",
+                    rule="empty-conversion",
+                    detail="conversion produced little or no text; the source may "
+                    "be a scanned / image-only document — try quality='high' or "
+                    "OCR the source before adding it",
+                )
+            )
+
         if not cleaned.lstrip().startswith("#"):
             cleaned = f"# {title}\n\n{cleaned}"
         doc_path.write_text(cleaned, encoding="utf-8")
 
         section_paths: list[Path] = []
         was_split = False
-        warnings: list[SectionWarning] = []
         split_dir = category_dir / doc_stem
         if split and should_split(cleaned, self.config.split_threshold_bytes):
             sections = split_by_h2(cleaned)
             if len(sections) >= 2:
                 section_paths = write_split_files(sections, split_dir)
                 was_split = True
-                warnings = lint_sections(sections)
+                warnings.extend(lint_sections(sections))
         elif split_dir.is_dir():
             # Document is no longer large enough — wipe the stale split.
             import shutil
@@ -607,8 +626,8 @@ class Shelf:
             return
         del data[filename]
         if data:
-            meta_path.write_text(
-                json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+            atomic_write_text(
+                meta_path, json.dumps(data, indent=2, ensure_ascii=False) + "\n"
             )
         else:
             meta_path.unlink()
@@ -662,7 +681,7 @@ class Shelf:
             except json.JSONDecodeError:
                 data = {}
         data[filename] = {"title": title, "description": description}
-        meta_path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        atomic_write_text(meta_path, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
 
     # ------------------------------------------------------- index helpers
 
@@ -700,7 +719,7 @@ class Shelf:
             url_template=cfg.url_template,
         )
         index_path = self.root / "INDEX.md"
-        index_path.write_text(self._index_text(entries), encoding="utf-8")
+        atomic_write_text(index_path, self._index_text(entries))
         return index_path
 
     def lint_shelf(self) -> dict[str, list[SectionWarning]]:
@@ -783,9 +802,9 @@ class Shelf:
                         for k in stale:
                             del data[k]
                         if data:
-                            meta_path.write_text(
-                                json.dumps(data, indent=2, ensure_ascii=False) + "\n",
-                                encoding="utf-8")
+                            atomic_write_text(
+                                meta_path,
+                                json.dumps(data, indent=2, ensure_ascii=False) + "\n")
                         else:
                             meta_path.unlink()
                         for f in findings:

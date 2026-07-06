@@ -195,6 +195,25 @@ def test_add_directory_wrapper(tmp_path: Path):
     assert {a["file"] for a in out["added"]} == {"a.md", "b.md"}
 
 
+def test_add_directory_wrapper_surfaces_empty_conversion_warning(tmp_path: Path):
+    shelf_path = str(tmp_path / "s")
+    t.init_shelf(t.InitShelfInput(shelf_path=shelf_path, name="T"))
+    src = tmp_path / "in"
+    src.mkdir()
+    (src / "real.md").write_text("# Real\n\nActual body text here.\n", encoding="utf-8")
+    (src / "scan.md").write_text("   \n\n", encoding="utf-8")  # empty conversion
+
+    out = t.add_directory(
+        t.AddDirectoryInput(source_dir=str(src), category="docs", shelf_path=shelf_path)
+    )
+    by_file = {a["file"]: a for a in out["added"]}
+    assert by_file["scan.md"]["warning_count"] >= 1
+    assert any(
+        w["rule"] == "empty-conversion" for w in by_file["scan.md"]["warnings"]
+    )
+    assert by_file["real.md"]["warning_count"] == 0
+
+
 def test_add_directory_wrapper_reports_failures(tmp_path: Path):
     shelf_path = str(tmp_path / "s")
     t.init_shelf(t.InitShelfInput(shelf_path=shelf_path, name="T"))
