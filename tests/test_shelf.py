@@ -624,7 +624,7 @@ def test_read_document_max_bytes_smaller_than_char_still_progresses(tmp_path: Pa
     # Offset 0 is a heading ('# One' is prepended); jump to the '€' by its byte
     # offset in the actual on-disk file (newline width is platform-dependent).
     raw = (shelf.root / "docs" / "c" / "one.md").read_bytes()
-    euro_byte = raw.index("€".encode("utf-8"))
+    euro_byte = raw.index("€".encode())
     page = shelf.read_document("docs/c/one.md", max_bytes=1, offset=euro_byte)
     assert page.content.startswith("€")
     assert page.next_offset == euro_byte + 3  # advanced a full 3-byte char
