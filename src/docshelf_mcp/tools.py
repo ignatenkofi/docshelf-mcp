@@ -129,6 +129,13 @@ class AddDocumentInput(_BaseInput):
         description="PDF conversion quality: 'fast' (pymupdf4llm, default) or "
         "'high' (marker-pdf, requires optional install).",
     )
+    overwrite: bool = Field(
+        default=False,
+        description="Replace an existing document when a different title/category "
+        "slugifies onto the same file path. Off by default so a slug collision "
+        "can't silently destroy an earlier document — the call errors instead. "
+        "Re-adding the same title is always an in-place update and needs no flag.",
+    )
     shelf_path: str | None = Field(
         default=None,
         description="Path to the shelf root directory. Defaults to $DOCSHELF_ROOT "
@@ -350,6 +357,7 @@ def add_document(params: AddDocumentInput) -> dict:
         description=params.description,
         split=params.split,
         quality=params.quality,
+        overwrite=params.overwrite,
     )
     # Shelf.add_document already rebuilt INDEX.md — no second rebuild here.
     return {
@@ -362,6 +370,7 @@ def add_document(params: AddDocumentInput) -> dict:
         "was_split": result.was_split,
         "section_count": len(result.section_paths),
         "converted_from_pdf": result.converted_from_pdf,
+        "overwritten": result.overwritten,
         "warning_count": len(result.warnings),
         "warnings": [_warning_dict(w) for w in result.warnings],
         "index_path": "INDEX.md",

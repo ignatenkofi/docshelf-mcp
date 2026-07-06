@@ -195,6 +195,106 @@ def test_add_document_surfaces_section_warnings(tmp_path: Path):
     assert any(w.rule == "unit-fragment" for w in disk[key])
 
 
+def test_add_document_refuses_slug_collision(tmp_path: Path):
+    # Two distinct titles that slugify to the same stem must not clobber each
+    # other silently — the second add errors and the first survives intact.
+    from docshelf_mcp.core.shelf import DocumentExistsError
+
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    a = tmp_path / "a.md"
+    a.write_text("# Alpha\n\nUNIQUE_ALPHA_BODY\n", encoding="utf-8")
+    b = tmp_path / "b.md"
+    b.write_text("# Beta\n\nUNIQUE_BETA_BODY\n", encoding="utf-8")
+
+    shelf.add_document(a, category="c", title="C++ Guide!", split=False)
+    with pytest.raises(DocumentExistsError):
+        shelf.add_document(b, category="c", title="C++ Guide?", split=False)
+
+    # Exactly one file, still holding the first document's body.
+    files = sorted(p.name for p in (shelf.root / "docs" / "c").glob("*.md"))
+    assert files == ["c-guide.md"]
+    assert "UNIQUE_ALPHA_BODY" in (shelf.root / "docs" / "c" / "c-guide.md").read_text()
+
+
+def test_add_document_overwrite_flag_replaces_colliding_document(tmp_path: Path):
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    a = tmp_path / "a.md"
+    a.write_text("# Alpha\n\nUNIQUE_ALPHA_BODY\n", encoding="utf-8")
+    b = tmp_path / "b.md"
+    b.write_text("# Beta\n\nUNIQUE_BETA_BODY\n", encoding="utf-8")
+
+    shelf.add_document(a, category="c", title="C++ Guide!", split=False)
+    result = shelf.add_document(
+        b, category="c", title="C++ Guide?", split=False, overwrite=True
+    )
+    assert result.overwritten is True
+    body = (shelf.root / "docs" / "c" / "c-guide.md").read_text()
+    assert "UNIQUE_BETA_BODY" in body and "UNIQUE_ALPHA_BODY" not in body
+    # The meta title reflects the replacement.
+    meta = json.loads((shelf.root / "docs" / "c" / ".meta.json").read_text())
+    assert meta["c-guide.md"]["title"] == "C++ Guide?"
+
+
+def test_add_document_same_title_reingest_updates_in_place(tmp_path: Path):
+    # Re-adding the SAME title is an in-place update, not a collision — no flag
+    # needed, and `overwritten` reports the replacement.
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    v1 = tmp_path / "v1.md"
+    v1.write_text("# Manual\n\nOLD_REVISION\n", encoding="utf-8")
+    v2 = tmp_path / "v2.md"
+    v2.write_text("# Manual\n\nNEW_REVISION\n", encoding="utf-8")
+
+    first = shelf.add_document(v1, category="c", title="Manual", split=False)
+    assert first.overwritten is False
+    second = shelf.add_document(v2, category="c", title="Manual", split=False)
+    assert second.overwritten is True
+    body = (shelf.root / "docs" / "c" / "manual.md").read_text()
+    assert "NEW_REVISION" in body and "OLD_REVISION" not in body
+
+
+def test_add_document_unsluggable_titles_dont_collide_silently(tmp_path: Path):
+    # Titles that slugify to nothing both fall back to "document.md"; the second
+    # distinct one must not silently overwrite the first.
+    from docshelf_mcp.core.shelf import DocumentExistsError
+
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    a = tmp_path / "a.md"
+    a.write_text("# A\n\nFIRST\n", encoding="utf-8")
+    b = tmp_path / "b.md"
+    b.write_text("# B\n\nSECOND\n", encoding="utf-8")
+
+    shelf.add_document(a, category="c", title="!!!", split=False)
+    # An unsluggable title falls back to slugify's own "section" stem.
+    assert (shelf.root / "docs" / "c" / "section.md").is_file()
+    with pytest.raises(DocumentExistsError):
+        shelf.add_document(b, category="c", title="???", split=False)
+
+
+def test_add_document_collision_does_not_convert_source(tmp_path: Path, monkeypatch):
+    # The guard fires before conversion, so a colliding add never pays the
+    # (potentially expensive) conversion cost.
+    from docshelf_mcp.core import shelf as shelf_mod
+    from docshelf_mcp.core.shelf import DocumentExistsError
+
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    a = tmp_path / "a.md"
+    a.write_text("# Alpha\n\nbody\n", encoding="utf-8")
+    shelf.add_document(a, category="c", title="Same Slug", split=False)
+
+    calls = {"n": 0}
+    real = shelf_mod.source_to_markdown
+    monkeypatch.setattr(
+        shelf_mod,
+        "source_to_markdown",
+        lambda *args, **kw: (calls.__setitem__("n", calls["n"] + 1), real(*args, **kw))[1],
+    )
+    b = tmp_path / "b.md"
+    b.write_text("# Beta\n\nbody\n", encoding="utf-8")
+    with pytest.raises(DocumentExistsError):
+        shelf.add_document(b, category="c", title="Same  Slug!", split=False)
+    assert calls["n"] == 0  # conversion never ran
+
+
 def test_add_document_unsupported_type(tmp_path: Path):
     shelf = Shelf(tmp_path / "s").init(name="S")
     bad = tmp_path / "junk.txt"
