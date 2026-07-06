@@ -12,11 +12,12 @@
 📖 **Docs & landing page:** <https://ignatenkofi.github.io/docshelf-mcp/>
 
 ```text
-   ___  __  ____  ____  _  _  ____  __    ____
-  / __)/  \(_  _)/ ___)/ )( \(  __)(  )  (  __)
- ( (_ \(  O ) )(  \___ \) __ ( ) _) / (_/\ ) _)
-  \___/ \__/ (__) (____/\_)(_/(____)\____/(__)
-       MCP server for AI-friendly doc shelves
+     _                _          _  __
+  __| | ___   ___ ___| |__   ___| |/ _|
+ / _` |/ _ \ / __/ __| '_ \ / _ \ | |_
+| (_| | (_) | (__\__ \ | | |  __/ |  _|
+ \__,_|\___/ \___|___/_| |_|\___|_|_|
+        MCP server for AI-friendly doc shelves
 ```
 
 An [MCP](https://modelcontextprotocol.io/) server that turns a folder of PDFs and Markdown into a **chat-project-friendly document collection**: AI agents see a single `INDEX.md` and pull individual sections by raw GitHub URL on demand — instead of choking on a 4 MB datasheet.
