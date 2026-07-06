@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `docshelf_rename_document` tool (+ `Shelf.rename_document`) — retitle,
+  recategorize, or re-describe a document without re-adding it. Moves the
+  `.md`, its split-section directory, and its `.meta.json` entry (no
+  re-conversion), refuses to clobber an existing target, and supports
+  `dry_run`. (#34)
+- Shelf files are now exposed as read-only **MCP resources**
+  (`docshelf:///<path>` for `INDEX.md` and every document / split section),
+  so MCP clients can browse and attach them natively. The set is synced on
+  server start and after each mutating tool call; content is read fresh,
+  size-capped, and confined to the shelf. (#35)
+- The `github` URL provider now also covers **GitHub Enterprise Server**: a
+  self-hosted `github.<company>.com` remote gets the GHES raw form
+  (`https://<host>/<owner>/<repo>/raw/<branch>/<path>`); `github.com` is
+  unchanged. (#36)
 - `add_document` / `add_directory` now emit an `empty-conversion` warning
   when a source converts to little or no text (e.g. a scanned / image-only
   PDF), so a silent empty document is visible; the file is still written.
@@ -50,6 +64,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `search` responses now include `match_mode` (`"all"` or `"any"`). (#2)
 
 ### Fixed
+- EPUB ingestion now assembles chapters in **spine (reading) order** instead
+  of manifest order, and skips the navigation / cover documents, so a book
+  whose manifest differs from its spine no longer comes out shuffled. (#29)
+- `read_document` slices now snap to **UTF-8 character boundaries**, so
+  truncation and `offset` paging never emit replacement characters (`�`) on
+  non-ASCII shelves; responses carry a `next_offset` to page losslessly. (#30)
+- `list_documents` category filter matches slug-to-slug, so a hand-created
+  category directory whose name isn't already a slug (e.g. `Mixed Case`) is
+  found by its human form. (#31)
+- `search` no longer re-reads the whole shelf on every call: file contents are
+  cached in-process keyed by `(mtime, size)`, and the base + heading-boost
+  counts are gathered in a single pass. (#37)
 - Shelf metadata and index writes (`INDEX.md`, `SUBINDEX.md`,
   `.docshelf.json`, `.meta.json`) are now **atomic** (temp file + `fsync` +
   `os.replace`), so an interrupted write — kill, full disk, power loss — can

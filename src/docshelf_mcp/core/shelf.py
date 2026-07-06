@@ -64,6 +64,7 @@ __all__ = [
     "ShelfConfig",
     "AddResult",
     "RemoveResult",
+    "RenameResult",
     "ReadResult",
     "DoctorFinding",
     "DocumentExistsError",
@@ -88,6 +89,47 @@ SHELF_METADATA_FILENAME = ".docshelf.json"
 #: Extra weight per query-token occurrence found on a heading line, so a
 #: document whose title/chapter names the query ranks above body-only matches.
 _HEADING_BOOST = 5
+
+
+def _is_utf8_continuation(byte: int) -> bool:
+    """True for a UTF-8 continuation byte (``0b10xxxxxx``) — a byte that is the
+    middle of a multibyte character, never the start of one."""
+    return (byte & 0xC0) == 0x80
+
+
+def _utf8_safe_bounds(data: bytes, offset: int, max_bytes: int) -> tuple[int, int]:
+    """Return ``(start, end)`` byte bounds for a slice snapped to UTF-8 chars.
+
+    Given a raw ``offset`` and a ``max_bytes`` budget (0 = to EOF), the returned
+    range never splits a multibyte character: the start is advanced past any
+    leading continuation bytes, and — when the slice is cut short of EOF — the
+    end is pulled back to a character boundary. If the budget is smaller than
+    the first whole character, the end is instead extended to cover it, so a
+    pager always makes forward progress. Decoding ``data[start:end]`` yields no
+    boundary-induced replacement characters.
+    """
+    size = len(data)
+    start = min(offset, size)
+    # Snap the start forward off any continuation bytes (a mid-character offset).
+    if start > 0:
+        while start < size and _is_utf8_continuation(data[start]):
+            start += 1
+
+    end = size if not max_bytes else min(start + max_bytes, size)
+
+    if end < size:
+        # We cut mid-stream: pull the end back to the start of the character
+        # that straddles the cut, so it lands whole in the next page.
+        while end > start and _is_utf8_continuation(data[end]):
+            end -= 1
+        if end == start:
+            # max_bytes was smaller than the first character — return that whole
+            # character anyway (over budget by a few bytes) so paging advances.
+            end = start + 1
+            while end < size and _is_utf8_continuation(data[end]):
+                end += 1
+
+    return start, end
 
 
 def _make_snippet(text: str, pos: int, width: int = 200) -> str:
@@ -174,6 +216,21 @@ class RemoveResult:
 
 
 @dataclass
+class RenameResult:
+    """Outcome of :meth:`Shelf.rename_document`."""
+
+    #: Document path (relative to the shelf root) before the rename/move.
+    old_path: str
+    #: Document path after the rename/move.
+    new_path: str
+    was_split: bool
+    #: True if the target path differs from the source (a real move happened);
+    #: False for a metadata-only update (title/description, same slug).
+    moved: bool
+    dry_run: bool
+
+
+@dataclass
 class ReadResult:
     """Outcome of :meth:`Shelf.read_document`."""
 
@@ -183,6 +240,11 @@ class ReadResult:
     size_bytes: int
     #: True if the file is larger than the returned slice.
     truncated: bool
+    #: Byte offset to pass as ``offset`` to read the next page. Because slices
+    #: are snapped to UTF-8 character boundaries, this can differ from
+    #: ``offset + max_bytes``; page with it (not a hand-computed offset) so no
+    #: character is lost or duplicated across pages.
+    next_offset: int = 0
 
 
 @dataclass
@@ -214,6 +276,10 @@ class Shelf:
     def __init__(self, root: Path | str) -> None:
         self.root = Path(root).expanduser().resolve()
         self._config: ShelfConfig | None = None
+        #: In-process search corpus cache: path → (mtime, size, text). Lets a
+        #: repeat :meth:`search` skip re-reading unchanged files from disk;
+        #: invalidated per file on any mtime/size change.
+        self._search_cache: dict[Path, tuple[float, int, str]] = {}
 
     # ------------------------------------------------------------------ config
 
@@ -502,8 +568,15 @@ class Shelf:
                 :meth:`search` / :func:`scan_shelf` (e.g.
                 ``"docs/routers/mikrotik/003-firewall.md"``).
             max_bytes: Cap the returned slice so a huge datasheet can't blow up
-                the caller's context window. ``truncated`` flags when hit.
+                the caller's context window. ``truncated`` flags when hit. The
+                slice is snapped to UTF-8 character boundaries, so it may come
+                back a few bytes under ``max_bytes`` (never over, except when
+                ``max_bytes`` is smaller than a single leading character — then
+                that whole character is returned so paging makes progress).
             offset: Byte offset to start from, for paging through a big file.
+                Use :attr:`ReadResult.next_offset` from the previous page rather
+                than a hand-computed ``offset + max_bytes`` so no multibyte
+                character is split, lost, or duplicated across pages.
 
         Raises:
             ValueError: ``offset``/``max_bytes`` negative, or the path resolves
@@ -525,12 +598,14 @@ class Shelf:
 
         data = target.read_bytes()
         size = len(data)
-        chunk = data[offset : offset + max_bytes] if max_bytes else data[offset:]
+        start, end = _utf8_safe_bounds(data, offset, max_bytes)
+        chunk = data[start:end]
         return ReadResult(
             relative_path=target.relative_to(self.root).as_posix(),
             content=chunk.decode("utf-8", errors="replace"),
             size_bytes=size,
-            truncated=offset + len(chunk) < size,
+            truncated=end < size,
+            next_offset=end,
         )
 
     # ------------------------------------------------------ remove document
@@ -587,6 +662,108 @@ class Shelf:
             self.rebuild_index()
 
         return RemoveResult(removed_paths=removed, was_split=was_split, dry_run=dry_run)
+
+    # ------------------------------------------------------ rename document
+
+    def rename_document(
+        self,
+        *,
+        category: str,
+        document: str,
+        new_title: str | None = None,
+        new_category: str | None = None,
+        new_description: str | None = None,
+        dry_run: bool = False,
+    ) -> RenameResult:
+        """Retitle, recategorize, or re-describe a document without re-adding it.
+
+        Moves the document ``.md``, its split-section directory (if any), and
+        its ``.meta.json`` entry — no re-conversion — then rebuilds INDEX.md.
+        At least one of ``new_title`` / ``new_category`` / ``new_description``
+        must be given. Changing the title (or category) changes the on-disk slug
+        (or directory); a description-only change is an in-place metadata update.
+
+        Args:
+            category: Current category the document lives in.
+            document: Filename, slug, or current title (resolved like
+                :meth:`remove_document`).
+            new_title: New display title. Re-slugifies the filename.
+            new_category: New category bucket. Created if missing.
+            new_description: New one-line description.
+            dry_run: Report the planned move without touching disk.
+
+        Raises:
+            ValueError: No change requested.
+            FileNotFoundError: The source category or document doesn't exist.
+            DocumentExistsError: The target path is already held by a different
+                document.
+        """
+        if new_title is None and new_category is None and new_description is None:
+            raise ValueError(
+                "rename_document needs at least one of new_title / new_category "
+                "/ new_description"
+            )
+
+        category_slug = slugify(category, max_len=80) or "uncategorized"
+        category_dir = self.root / "docs" / category_slug
+        if not category_dir.is_dir():
+            raise FileNotFoundError(
+                f"Category not found: {category_slug!r} (under {self.root / 'docs'})"
+            )
+        doc_path = self._resolve_document(category_dir, document)
+        if doc_path is None:
+            raise FileNotFoundError(
+                f"Document not found in {category_slug!r}: {document!r}"
+            )
+
+        # Resolve the effective title/description (fall back to current values).
+        cur_title = self._existing_title(category_dir, doc_path.name) or (
+            _title_from_filename(doc_path.stem)
+        )
+        cur_desc = self._existing_description(category_dir, doc_path.name)
+        title = new_title if new_title is not None else cur_title
+        description = new_description if new_description is not None else cur_desc
+
+        # Resolve the target category dir + filename.
+        new_cat_slug = (
+            slugify(new_category, max_len=80) or "uncategorized"
+            if new_category is not None
+            else category_slug
+        )
+        new_cat_dir = self.root / "docs" / new_cat_slug
+        new_stem = slugify(new_title, max_len=80) if new_title is not None else doc_path.stem
+        new_doc_path = new_cat_dir / f"{new_stem}.md"
+
+        moved = new_doc_path != doc_path
+        if moved and new_doc_path.exists():
+            raise DocumentExistsError(
+                f"{new_doc_path.relative_to(self.root).as_posix()} already exists; "
+                "choose a distinct new title/category or remove the target first."
+            )
+
+        old_split = category_dir / doc_path.stem
+        was_split = old_split.is_dir()
+
+        if not dry_run:
+            if moved:
+                new_cat_dir.mkdir(parents=True, exist_ok=True)
+                doc_path.rename(new_doc_path)
+                if was_split:
+                    old_split.rename(new_cat_dir / new_stem)
+                self._prune_category_meta(category_dir, doc_path.name)
+                self._search_cache.pop(doc_path, None)
+            self._update_category_meta(
+                new_cat_dir, new_doc_path.name, title, description
+            )
+            self.rebuild_index()
+
+        return RenameResult(
+            old_path=doc_path.relative_to(self.root).as_posix(),
+            new_path=new_doc_path.relative_to(self.root).as_posix(),
+            was_split=was_split,
+            moved=moved,
+            dry_run=dry_run,
+        )
 
     def _resolve_document(self, category_dir: Path, document: str) -> Path | None:
         """Find a document file by filename, slug, or (slugified) title.
@@ -650,6 +827,21 @@ class Shelf:
             title = entry.get("title")
             return title if isinstance(title, str) else None
         return None
+
+    def _existing_description(self, category_dir: Path, filename: str) -> str:
+        """Return the stored description for ``filename`` (``""`` if none)."""
+        meta_path = category_dir / ".meta.json"
+        if not meta_path.is_file():
+            return ""
+        try:
+            data = json.loads(meta_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return ""
+        entry = data.get(filename) if isinstance(data, dict) else None
+        if isinstance(entry, dict):
+            desc = entry.get("description")
+            return desc if isinstance(desc, str) else ""
+        return ""
 
     def _is_same_document(
         self, category_dir: Path, filename: str, title: str
@@ -899,6 +1091,10 @@ class Shelf:
 
         For a split document the whole-file parent is skipped in favour of its
         section files — they are the targeted units an agent should fetch.
+
+        File contents are cached in-process keyed by ``(mtime, size)``, so a
+        repeat search within a session doesn't re-read unchanged files; the base
+        and heading-boost counts are gathered in a single pass over each file.
         """
         if not query.strip():
             return []
@@ -920,32 +1116,61 @@ class Shelf:
             split_dir = md_file.parent / md_file.stem
             if split_dir.is_dir() and any(split_dir.glob("*.md")):
                 continue
-            try:
-                text = md_file.read_text(encoding="utf-8", errors="replace")
-            except OSError:
+            cached = self._cached_corpus(md_file)
+            if cached is None:
                 continue
+            text, size = cached
             lower = text.lower()
-            if mode == "all" and not all(n in lower for n in needles):
+
+            # One pass gathers the total (base) count, the heading-only count
+            # (for the boost), and which needles were seen (for AND mode) —
+            # instead of a full-text count plus a second splitlines() scan.
+            # A needle never spans a newline, so per-line counts sum to the
+            # whole-file count.
+            base = 0
+            heading_hits = 0
+            seen: set[str] = set()
+            for line in lower.splitlines():
+                is_heading = line.lstrip().startswith("#")
+                for n in needles:
+                    c = line.count(n)
+                    if c:
+                        base += c
+                        seen.add(n)
+                        if is_heading:
+                            heading_hits += c
+
+            if mode == "all" and len(seen) < len(needles):
                 continue
-            base = sum(lower.count(n) for n in needles)
             if base == 0:
                 continue
-            # Boost matches that land on a heading line (title / ## chapter).
-            heading_hits = sum(
-                line.count(n)
-                for line in lower.splitlines()
-                if line.lstrip().startswith("#")
-                for n in needles
-            )
             score = base + _HEADING_BOOST * heading_hits
-            first_pos = min((lower.find(n) for n in needles if n in lower), default=0)
+            first_pos = min((lower.find(n) for n in seen), default=0)
             hits.append(
                 {
                     "relative_path": md_file.relative_to(self.root).as_posix(),
                     "score": score,
                     "snippet": _make_snippet(text, first_pos),
-                    "size": md_file.stat().st_size,
+                    "size": size,
                 }
             )
         hits.sort(key=lambda h: (-h["score"], h["relative_path"]))
         return hits[:max_results]
+
+    def _cached_corpus(self, path: Path) -> tuple[str, int] | None:
+        """Return ``(text, size_bytes)`` for ``path``, reading from disk only
+        when the file is new or its ``(mtime, size)`` changed. Returns None if
+        the file can't be stat'd or read."""
+        try:
+            st = path.stat()
+        except OSError:
+            return None
+        entry = self._search_cache.get(path)
+        if entry is not None and entry[0] == st.st_mtime and entry[1] == st.st_size:
+            return entry[2], entry[1]
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return None
+        self._search_cache[path] = (st.st_mtime, st.st_size, text)
+        return text, st.st_size

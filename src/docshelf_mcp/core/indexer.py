@@ -70,24 +70,47 @@ DEFAULT_PREAMBLE = (
 
 
 def raw_github_url(remote: str, branch: str, relative_path: str) -> str:
-    """Build a ``raw.githubusercontent.com`` URL.
+    """Build a raw-content URL for a GitHub remote.
+
+    Handles both public GitHub and **GitHub Enterprise Server** (self-hosted):
+
+    * ``github.com`` →
+      ``https://raw.githubusercontent.com/<owner>/<repo>/<branch>/<path>``.
+    * any other host (e.g. ``github.acme.com``) → the GHES raw form served from
+      that same host,
+      ``https://<host>/<owner>/<repo>/raw/<branch>/<path>``.
 
     Args:
         remote: GitHub URL of the form ``https://github.com/owner/repo`` or
-            ``git@github.com:owner/repo.git``.
+            ``git@github.com:owner/repo.git`` (or the equivalent on a GHES host).
         branch: Branch name (e.g. ``"main"``).
         relative_path: Path relative to the repo root, forward-slashed.
 
     Returns:
         Empty string if ``remote`` cannot be parsed (so the index still renders).
     """
-    owner_repo = _parse_owner_repo(remote)
-    if owner_repo is None:
-        return ""
-    owner, repo = owner_repo
     # Percent-encode path segments (spaces, #, ?, …) while keeping the slashes.
     path = quote(relative_path, safe="/")
-    return f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{path}"
+
+    # Public github.com — proven parser, byte-identical output as before.
+    owner_repo = _parse_owner_repo(remote)
+    if owner_repo is not None:
+        owner, repo = owner_repo
+        return f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{path}"
+
+    # A non-github.com host that still looks like GitHub (e.g. github.acme.com):
+    # treat it as GitHub Enterprise Server, which serves raw content from the
+    # same host under ``/<owner>/<repo>/raw/<branch>/<path>``. Hosts that don't
+    # look like GitHub (gitlab.com, bitbucket.org, …) stay link-less here — use
+    # the matching provider or a `custom` url_template for those, or for a GHES
+    # deployment on a fully custom domain.
+    parsed = _parse_remote(remote)
+    if parsed is None:
+        return ""
+    host, owner, repo = parsed
+    if "github" in host.lower():
+        return f"https://{host}/{owner}/{repo}/raw/{branch}/{path}"
+    return ""
 
 
 # owner and repo are each a run of non-slash, non-space characters — so a repo
@@ -145,7 +168,9 @@ def shelf_url(
 
     Providers:
 
-    * ``github`` — ``raw.githubusercontent.com`` (the default; see
+    * ``github`` — ``raw.githubusercontent.com`` for github.com, or the
+      GitHub Enterprise Server raw form (``https://<host>/<owner>/<repo>/raw/
+      <branch>/<path>``) for a self-hosted host (the default; see
       :func:`raw_github_url`).
     * ``gitlab`` — ``https://<host>/<owner>/<repo>/-/raw/<branch>/<path>``.
     * ``gitea`` — ``https://<host>/<owner>/<repo>/raw/branch/<branch>/<path>``.
