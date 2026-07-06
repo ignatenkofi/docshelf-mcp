@@ -91,6 +91,57 @@ def test_add_document_wrapper_then_search(tmp_path: Path):
     assert fallback_out["match_count"] >= 1
 
 
+def test_add_document_wrapper_reports_overwritten(tmp_path: Path):
+    shelf_path = str(tmp_path / "s")
+    t.init_shelf(t.InitShelfInput(shelf_path=shelf_path, name="T"))
+
+    def add(title, overwrite=False):
+        return t.add_document(
+            t.AddDocumentInput(
+                source_path=str(FIXTURE), category="docs", title=title,
+                split=False, overwrite=overwrite, shelf_path=shelf_path,
+            )
+        )
+
+    first = add("Sample")
+    assert first["overwritten"] is False
+    # Same title -> in-place update, flagged.
+    assert add("Sample")["overwritten"] is True
+
+
+def test_add_document_wrapper_collision_serializes_as_error(tmp_path: Path):
+    from docshelf_mcp import server
+
+    shelf_path = str(tmp_path / "s")
+    t.init_shelf(t.InitShelfInput(shelf_path=shelf_path, name="T"))
+    t.add_document(
+        t.AddDocumentInput(
+            source_path=str(FIXTURE), category="docs", title="C++ Guide!",
+            split=False, shelf_path=shelf_path,
+        )
+    )
+    out = json.loads(
+        server.add_document(
+            t.AddDocumentInput(
+                source_path=str(FIXTURE), category="docs", title="C++ Guide?",
+                split=False, shelf_path=shelf_path,
+            )
+        )
+    )
+    assert out["status"] == "error"
+    assert out["type"] == "DocumentExistsError"
+    assert "overwrite=True" in out["error"]
+
+    # overwrite=true goes through and reports the replacement.
+    ok = t.add_document(
+        t.AddDocumentInput(
+            source_path=str(FIXTURE), category="docs", title="C++ Guide?",
+            split=False, overwrite=True, shelf_path=shelf_path,
+        )
+    )
+    assert ok["status"] == "ok" and ok["overwritten"] is True
+
+
 def test_read_document_wrapper(tmp_path: Path):
     shelf_path = str(tmp_path / "s")
     t.init_shelf(

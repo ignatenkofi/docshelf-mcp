@@ -64,7 +64,21 @@ __all__ = [
     "RemoveResult",
     "ReadResult",
     "DoctorFinding",
+    "DocumentExistsError",
 ]
+
+
+class DocumentExistsError(Exception):
+    """A different document already occupies the target slug.
+
+    Raised by :meth:`Shelf.add_document` when the filename derived from the
+    title (and category) collides with an existing document whose stored title
+    differs — i.e. two distinct documents would map to the same
+    ``docs/<category>/<slug>.md``. Without this guard the second add would
+    silently overwrite the first. Re-adding the *same* title (an in-place
+    update) is not a collision; pass ``overwrite=True`` to replace a colliding
+    document on purpose.
+    """
 
 
 SHELF_METADATA_FILENAME = ".docshelf.json"
@@ -142,6 +156,9 @@ class AddResult:
     converted_from_pdf: bool
     #: Heuristic warnings about suspicious section headings (detection only).
     warnings: list[SectionWarning] = field(default_factory=list)
+    #: True when this add replaced an existing document at the same path
+    #: (an in-place update, or an explicit ``overwrite=True`` replacement).
+    overwritten: bool = False
 
 
 @dataclass
@@ -273,6 +290,7 @@ class Shelf:
         split: bool = True,
         quality: Quality = "fast",
         rebuild_index: bool = True,
+        overwrite: bool = False,
     ) -> AddResult:
         """Add (or replace) a document in the shelf.
 
@@ -288,6 +306,11 @@ class Shelf:
                 the document. Batch callers can pass False and call
                 :meth:`rebuild_index` once at the end for O(N) instead of
                 O(N²) index rebuilds.
+            overwrite: Replace an existing *different* document when the title
+                (and category) slugify onto a path another document already
+                occupies. Off by default so a slug collision can't silently
+                destroy the earlier document. Re-adding the **same** title is
+                always an in-place update and needs no flag.
 
         Returns:
             :class:`AddResult` with the on-disk paths.
@@ -295,6 +318,8 @@ class Shelf:
         Raises:
             FileNotFoundError: ``source`` doesn't exist.
             ValueError: ``source`` is not a supported input type.
+            DocumentExistsError: The target slug is occupied by a different
+                document and ``overwrite`` is False.
         """
         source = Path(source).expanduser().resolve()
         if not source.exists():
@@ -313,6 +338,22 @@ class Shelf:
 
         doc_stem = slugify(title, max_len=80) or "document"
         doc_path = category_dir / f"{doc_stem}.md"
+
+        # Collision guard: if the target path is already held by a *different*
+        # document, refuse (unless overwrite) rather than silently clobber it.
+        # Checked before the (possibly expensive) conversion so we fail fast.
+        overwritten = doc_path.exists()
+        if overwritten and not overwrite and not self._is_same_document(
+            category_dir, doc_path.name, title
+        ):
+            existing_title = self._existing_title(category_dir, doc_path.name)
+            raise DocumentExistsError(
+                f"{doc_path.relative_to(self.root).as_posix()} already holds a "
+                f"different document"
+                + (f" (title {existing_title!r})" if existing_title else "")
+                + f"; adding title {title!r} would overwrite it. Choose a "
+                "distinct title/category, or pass overwrite=True to replace it."
+            )
 
         raw_md = source_to_markdown(source, quality=quality)
         converted_from_pdf = suffix == ".pdf"
@@ -352,6 +393,7 @@ class Shelf:
             was_split=was_split,
             converted_from_pdf=converted_from_pdf,
             warnings=warnings,
+            overwritten=overwritten,
         )
 
     # ------------------------------------------------------ add directory
@@ -570,6 +612,40 @@ class Shelf:
             )
         else:
             meta_path.unlink()
+
+    def _existing_title(self, category_dir: Path, filename: str) -> str | None:
+        """Return the title stored in ``.meta.json`` for ``filename``, if any.
+
+        None when there is no meta file, no entry for the file, or the meta is
+        unreadable — callers treat "unknown" as "not the same document".
+        """
+        meta_path = category_dir / ".meta.json"
+        if not meta_path.is_file():
+            return None
+        try:
+            data = json.loads(meta_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return None
+        entry = data.get(filename) if isinstance(data, dict) else None
+        if isinstance(entry, dict):
+            title = entry.get("title")
+            return title if isinstance(title, str) else None
+        return None
+
+    def _is_same_document(
+        self, category_dir: Path, filename: str, title: str
+    ) -> bool:
+        """Whether an existing file at ``filename`` is the same logical document.
+
+        True only when the stored title matches ``title`` (case-insensitively,
+        whitespace-trimmed) — i.e. an in-place update. A file with no recorded
+        title (hand-dropped, unknown provenance) is treated as a *different*
+        document, so it is not silently overwritten.
+        """
+        existing = self._existing_title(category_dir, filename)
+        if existing is None:
+            return False
+        return existing.strip().lower() == title.strip().lower()
 
     def _update_category_meta(
         self,

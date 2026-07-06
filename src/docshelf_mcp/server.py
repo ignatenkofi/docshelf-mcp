@@ -96,6 +96,10 @@ def add_document(params: t.AddDocumentInput) -> str:
       ``quality='high'`` to use ``marker-pdf``).
     * Documents larger than 50 KB with multiple H2 headings are split into
       one file per section (turn this off with ``split=False``).
+    * If a *different* title/category slugifies onto a path an existing
+      document already occupies, the call errors instead of overwriting it —
+      pass ``overwrite=true`` to replace it. Re-adding the same title updates
+      in place. The response reports ``overwritten``.
     * INDEX.md is regenerated automatically. The caller still owns the git
       commit / push step.
     """

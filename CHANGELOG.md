@@ -46,6 +46,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `search` responses now include `match_mode` (`"all"` or `"any"`). (#2)
 
 ### Fixed
+- `add_document` no longer silently overwrites a document when a *different*
+  title/category slugifies onto the same file path — it raises
+  `DocumentExistsError` instead (pass `overwrite=True` to replace on purpose;
+  the response reports `overwritten`). Re-adding the same title is still an
+  in-place update. Prevents silent data loss on slug collisions. (#28)
 - Search quality: split documents return their section files instead of the
   whole-file parent, heading/title matches rank above body-only matches,
   snippets snap to word boundaries, and `list_documents`' category filter
