@@ -596,7 +596,9 @@ def test_read_document_paging_with_next_offset_is_lossless(tmp_path: Path):
     doc = tmp_path / "cyr.md"
     doc.write_text("# T\n\n" + body, encoding="utf-8")
     shelf.add_document(doc, category="c", title="Cyr", split=False)
-    full = (shelf.root / "docs" / "c" / "cyr.md").read_text(encoding="utf-8")
+    # Ground-truth from the raw on-disk bytes (read_document returns raw bytes;
+    # read_text would normalize newlines and mismatch on Windows).
+    full = (shelf.root / "docs" / "c" / "cyr.md").read_bytes().decode("utf-8")
 
     pieces, offset, guard = [], 0, 0
     while True:
@@ -619,9 +621,10 @@ def test_read_document_max_bytes_smaller_than_char_still_progresses(tmp_path: Pa
     doc = tmp_path / "one.md"
     doc.write_text("€ and more text here", encoding="utf-8")
     shelf.add_document(doc, category="c", title="One", split=False)
-    # Offset 0 is a heading ('# One' is prepended); jump to the '€'.
-    text = (shelf.root / "docs" / "c" / "one.md").read_text(encoding="utf-8")
-    euro_byte = text.encode("utf-8").index("€".encode())
+    # Offset 0 is a heading ('# One' is prepended); jump to the '€' by its byte
+    # offset in the actual on-disk file (newline width is platform-dependent).
+    raw = (shelf.root / "docs" / "c" / "one.md").read_bytes()
+    euro_byte = raw.index("€".encode("utf-8"))
     page = shelf.read_document("docs/c/one.md", max_bytes=1, offset=euro_byte)
     assert page.content.startswith("€")
     assert page.next_offset == euro_byte + 3  # advanced a full 3-byte char
