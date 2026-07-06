@@ -18,7 +18,7 @@ FIXTURE = Path(__file__).parent / "fixtures" / "sample.md"
 
 
 @pytest.mark.asyncio
-async def test_server_exposes_ten_tools():
+async def test_server_exposes_all_tools():
     tool_list = await mcp.list_tools()
     names = sorted(tool.name for tool in tool_list)
     assert names == sorted(
@@ -32,6 +32,7 @@ async def test_server_exposes_ten_tools():
             "docshelf_list_documents",
             "docshelf_rebuild_index",
             "docshelf_remove_document",
+            "docshelf_rename_document",
             "docshelf_search",
         ]
     )
@@ -259,6 +260,51 @@ def test_remove_document_wrapper(tmp_path: Path):
     assert "Doomed" not in (Path(shelf_path) / "INDEX.md").read_text(encoding="utf-8")
 
 
+def test_rename_document_wrapper(tmp_path: Path):
+    shelf_path = str(tmp_path / "s")
+    t.init_shelf(t.InitShelfInput(shelf_path=shelf_path, name="T"))
+    t.add_document(
+        t.AddDocumentInput(
+            source_path=str(FIXTURE), category="docs", title="Before",
+            split=False, shelf_path=shelf_path,
+        )
+    )
+    out = t.rename_document(
+        t.RenameDocumentInput(
+            category="docs", document="Before", new_title="After",
+            new_category="archive", shelf_path=shelf_path,
+        )
+    )
+    assert out["status"] == "ok" and out["moved"] is True
+    assert out["old_path"] == "docs/docs/before.md"
+    assert out["new_path"] == "docs/archive/after.md"
+    assert (Path(shelf_path) / "docs" / "archive" / "after.md").is_file()
+    assert not (Path(shelf_path) / "docs" / "docs" / "before.md").exists()
+
+
+def test_rename_document_wrapper_collision_serializes_as_error(tmp_path: Path):
+    from docshelf_mcp import server
+
+    shelf_path = str(tmp_path / "s")
+    t.init_shelf(t.InitShelfInput(shelf_path=shelf_path, name="T"))
+    for title in ("One", "Two"):
+        t.add_document(
+            t.AddDocumentInput(
+                source_path=str(FIXTURE), category="docs", title=title,
+                split=False, shelf_path=shelf_path,
+            )
+        )
+    out = json.loads(
+        server.rename_document(
+            t.RenameDocumentInput(
+                category="docs", document="One", new_title="Two",
+                shelf_path=shelf_path,
+            )
+        )
+    )
+    assert out["status"] == "error" and out["type"] == "DocumentExistsError"
+
+
 def test_list_documents_category_filter_accepts_human_form(tmp_path: Path):
     shelf_path = str(tmp_path / "s")
     t.init_shelf(t.InitShelfInput(shelf_path=shelf_path, name="T"))
@@ -274,6 +320,22 @@ def test_list_documents_category_filter_accepts_human_form(tmp_path: Path):
     )
     assert out["total_documents"] == 1
     assert "research-papers" in out["categories"]
+
+
+def test_list_documents_category_filter_matches_non_slug_dir(tmp_path: Path):
+    # A hand-created category directory whose name isn't already a slug must be
+    # findable by the human form (slug-to-slug comparison).
+    shelf_path = str(tmp_path / "s")
+    t.init_shelf(t.InitShelfInput(shelf_path=shelf_path, name="T"))
+    cat = Path(shelf_path) / "docs" / "Mixed Case"
+    cat.mkdir(parents=True)
+    (cat / "x.md").write_text("# X\n\nbody text here\n", encoding="utf-8")
+
+    out = t.list_documents(
+        t.ListDocumentsInput(category="Mixed Case", shelf_path=shelf_path)
+    )
+    assert out["total_documents"] == 1
+    assert "Mixed Case" in out["categories"]
 
 
 def test_list_documents_wrapper(tmp_path: Path):
@@ -485,6 +547,71 @@ def test_cli_no_args_starts_server(monkeypatch):
     monkeypatch.setattr(server.mcp, "run", lambda: ran.__setitem__("v", True))
     server.main([])  # backward compat: no args -> start server
     assert ran["v"] is True
+
+
+@pytest.mark.asyncio
+async def test_shelf_files_exposed_as_resources(tmp_path: Path):
+    from docshelf_mcp import server
+    from docshelf_mcp.core.shelf import Shelf
+
+    shelf_path = str(tmp_path / "s")
+    t.init_shelf(t.InitShelfInput(shelf_path=shelf_path, name="Res Shelf"))
+    t.add_document(
+        t.AddDocumentInput(
+            source_path=str(FIXTURE), category="docs", title="Sample",
+            split=False, shelf_path=shelf_path,
+        )
+    )
+
+    count = server.register_shelf_resources(Shelf(shelf_path))
+    assert count >= 2  # INDEX.md + the document
+
+    resources = await server.mcp.list_resources()
+    uris = {str(r.uri) for r in resources}
+    assert "docshelf:///INDEX.md" in uris
+    assert "docshelf:///docs/docs/sample.md" in uris
+
+    # Reading a resource returns the file's content.
+    got = await server.mcp.read_resource("docshelf:///docs/docs/sample.md")
+    body = "".join(c.content for c in got)
+    assert "BGP" in body
+
+
+@pytest.mark.asyncio
+async def test_resource_sync_drops_removed_documents(tmp_path: Path):
+    from docshelf_mcp import server
+    from docshelf_mcp.core.shelf import Shelf
+
+    shelf_path = str(tmp_path / "s")
+    t.init_shelf(t.InitShelfInput(shelf_path=shelf_path, name="R"))
+    t.add_document(
+        t.AddDocumentInput(
+            source_path=str(FIXTURE), category="docs", title="Gone",
+            split=False, shelf_path=shelf_path,
+        )
+    )
+    server.register_shelf_resources(Shelf(shelf_path))
+    uris = {str(r.uri) for r in await server.mcp.list_resources()}
+    assert "docshelf:///docs/docs/gone.md" in uris
+
+    t.remove_document(
+        t.RemoveDocumentInput(category="docs", document="Gone", shelf_path=shelf_path)
+    )
+    server.register_shelf_resources(Shelf(shelf_path))
+    uris = {str(r.uri) for r in await server.mcp.list_resources()}
+    assert "docshelf:///docs/docs/gone.md" not in uris
+
+
+@pytest.mark.asyncio
+async def test_register_resources_on_non_shelf_is_empty(tmp_path: Path):
+    from docshelf_mcp import server
+    from docshelf_mcp.core.shelf import Shelf
+
+    # A bare directory (no .docshelf.json) registers nothing and clears prior.
+    count = server.register_shelf_resources(Shelf(tmp_path / "bare"))
+    assert count == 0
+    uris = {str(r.uri) for r in await server.mcp.list_resources()}
+    assert not any(u.startswith("docshelf:") for u in uris)
 
 
 def test_tools_to_json_is_human_readable():

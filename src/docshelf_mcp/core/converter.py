@@ -144,12 +144,52 @@ def _convert_epub(path: Path) -> str:
             "Install it with: pip install 'docshelf-mcp[epub]'"
         ) from exc
     book = epub.read_epub(str(path))
+
+    # Classes that are documents but not body chapters — the navigation page
+    # (EPUB3 nav / ToC) and the HTML cover — must not be interleaved as text.
+    skip_classes = tuple(
+        c
+        for c in (getattr(epub, "EpubNav", None), getattr(epub, "EpubCoverHtml", None))
+        if c is not None
+    )
+
     parts: list[str] = []
-    for item in book.get_items():
-        if item.get_type() == ebooklib.ITEM_DOCUMENT:
-            html = item.get_content().decode("utf-8", errors="replace")
-            parts.append(_html_to_markdown(html))
-    return "\n\n".join(p for p in parts if p.strip())
+    seen: set[str] = set()
+
+    def render(item) -> None:
+        if item is None or item.get_type() != ebooklib.ITEM_DOCUMENT:
+            return
+        if skip_classes and isinstance(item, skip_classes):
+            return
+        item_id = item.get_id()
+        if item_id in seen:
+            return
+        seen.add(item_id)
+        html = item.get_content().decode("utf-8", errors="replace")
+        md = _html_to_markdown(html)
+        if md.strip():
+            parts.append(md)
+
+    # Assemble in *spine* (reading) order — the manifest order that
+    # ``get_items`` yields is not guaranteed to match it. Skip non-linear
+    # items (``linear="no"`` — notes, popups) so they don't land mid-book.
+    for entry in getattr(book, "spine", None) or []:
+        if isinstance(entry, (tuple, list)):
+            idref = entry[0]
+            linear = entry[1] if len(entry) > 1 else "yes"
+        else:
+            idref, linear = entry, "yes"
+        if str(linear).lower() in ("no", "false", "0"):
+            continue
+        render(book.get_item_with_id(idref))
+
+    # Fallback: an EPUB with an empty/unusable spine still yields its documents
+    # (manifest order) rather than nothing.
+    if not parts:
+        for item in book.get_items():
+            render(item)
+
+    return "\n\n".join(parts)
 
 
 #: Suffix → converter. Markdown is read verbatim; the rest are extracted.

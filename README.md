@@ -140,7 +140,7 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) o
 }
 ```
 
-Restart Claude Desktop. You now have ten new tools available:
+Restart Claude Desktop. You now have eleven new tools available:
 
 | Tool | What it does |
 |---|---|
@@ -149,6 +149,7 @@ Restart Claude Desktop. You now have ten new tools available:
 | `docshelf_add_directory` | Add every PDF/MD in a folder in one call. Re-indexes once. |
 | `docshelf_read_document` | Read a document/section's content over MCP (works on private shelves). |
 | `docshelf_remove_document` | Remove a document, its sections, and metadata. Re-indexes. |
+| `docshelf_rename_document` | Retitle / recategorize a document (moves file, sections, meta) — no re-conversion. |
 | `docshelf_rebuild_index` | Regenerate `INDEX.md` from disk. |
 | `docshelf_doctor` | Check shelf integrity; optionally auto-fix safe drift. |
 | `docshelf_search` | Plain-text search across the shelf, with raw URLs. |
@@ -261,7 +262,7 @@ Because it's dead simple, costs nothing to host, and the AI is already good at c
 Partly. The raw-URL trick needs a public repo — `raw.githubusercontent.com` won't serve private ones without auth. But `docshelf_search` **and** `docshelf_read_document` both work over MCP on private (or purely local, non-git) shelves: the model searches, then reads the exact section's content directly from the server, no raw URL required. You only lose the ability to hand a bare `INDEX.md` to a chat project and have it fetch by URL — with the MCP server attached, the full flow works either way. Make the doc repo public if you want the URL-fetch path too.
 
 **Do I have to use GitHub?**
-No. Set `provider` in `.docshelf.json` (or at `init_shelf`): `github` (default), `gitlab`, `gitea`, `custom`, or `none`. `custom` takes a `url_template` with `{owner}`, `{repo}`, `{branch}`, `{path}` placeholders, so you can point at S3, Cloudflare R2, GitLab/Gitea raw, or any static host — the generated URLs are correct everywhere, no post-processing. `none` renders **relative** links in `INDEX.md`, which stay navigable offline / in a local checkout.
+No. Set `provider` in `.docshelf.json` (or at `init_shelf`): `github` (default), `gitlab`, `gitea`, `custom`, or `none`. The `github` provider also covers **GitHub Enterprise Server**: a self-hosted `github.<company>.com` remote gets the GHES raw form (`https://<host>/<owner>/<repo>/raw/<branch>/<path>`) automatically. `custom` takes a `url_template` with `{owner}`, `{repo}`, `{branch}`, `{path}` placeholders, so you can point at S3, Cloudflare R2, GitLab/Gitea raw, a GHES deployment on a fully custom domain, or any static host — the generated URLs are correct everywhere, no post-processing. `none` renders **relative** links in `INDEX.md`, which stay navigable offline / in a local checkout.
 
 **Does it edit the source PDFs?**
 No. PDFs are converted on `add_document` and the source is left in place. The shelf only writes inside its own directory.

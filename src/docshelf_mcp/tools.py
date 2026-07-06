@@ -31,6 +31,7 @@ __all__ = [
     "AddDirectoryInput",
     "ReadDocumentInput",
     "RemoveDocumentInput",
+    "RenameDocumentInput",
     "RebuildIndexInput",
     "DoctorInput",
     "SearchInput",
@@ -42,6 +43,7 @@ __all__ = [
     "add_directory",
     "read_document",
     "remove_document",
+    "rename_document",
     "rebuild_index",
     "doctor",
     "search",
@@ -197,7 +199,9 @@ class ReadDocumentInput(_BaseInput):
     )
     offset: int = Field(
         default=0,
-        description="Byte offset to start reading from (for paging a large file).",
+        description="Byte offset to start reading from (for paging a large file). "
+        "Use the previous response's 'next_offset' rather than offset+max_bytes — "
+        "slices snap to UTF-8 character boundaries, so next_offset may differ.",
         ge=0,
     )
     shelf_path: str | None = Field(default=None)
@@ -222,6 +226,47 @@ class RemoveDocumentInput(_BaseInput):
     dry_run: bool = Field(
         default=False,
         description="If true, only report what would be removed — delete nothing.",
+    )
+    shelf_path: str | None = Field(
+        default=None,
+        description="Path to the shelf root directory. Defaults to $DOCSHELF_ROOT "
+        "or the server's working directory.",
+    )
+
+
+class RenameDocumentInput(_BaseInput):
+    """Input for ``rename_document``."""
+
+    category: str = Field(
+        ...,
+        description="Current category the document lives in.",
+        min_length=1,
+        max_length=80,
+    )
+    document: str = Field(
+        ...,
+        description="Filename ('foo.md'), slug ('foo'), or current title.",
+        min_length=1,
+        max_length=200,
+    )
+    new_title: str | None = Field(
+        default=None,
+        description="New display title (re-slugifies the filename).",
+        max_length=200,
+    )
+    new_category: str | None = Field(
+        default=None,
+        description="New category bucket. Created if missing.",
+        max_length=80,
+    )
+    new_description: str | None = Field(
+        default=None,
+        description="New one-line description.",
+        max_length=500,
+    )
+    dry_run: bool = Field(
+        default=False,
+        description="If true, report the planned move without touching anything.",
     )
     shelf_path: str | None = Field(
         default=None,
@@ -440,6 +485,7 @@ def read_document(params: ReadDocumentInput) -> dict:
         "content": result.content,
         "size_bytes": result.size_bytes,
         "truncated": result.truncated,
+        "next_offset": result.next_offset,
         "raw_url": url,
     }
 
@@ -465,6 +511,35 @@ def remove_document(params: RemoveDocumentInput) -> dict:
             "Nothing was deleted (dry run)."
             if result.dry_run
             else "Commit the removal ('git add -A && git commit') to update the "
+            "published shelf. INDEX.md has already been regenerated."
+        ),
+    }
+
+
+def rename_document(params: RenameDocumentInput) -> dict:
+    """Implementation of the ``rename_document`` MCP tool."""
+    shelf = _resolve_shelf(params.shelf_path)
+    result = shelf.rename_document(
+        category=params.category,
+        document=params.document,
+        new_title=params.new_title,
+        new_category=params.new_category,
+        new_description=params.new_description,
+        dry_run=params.dry_run,
+    )
+    return {
+        "status": "ok",
+        "shelf_root": str(shelf.root),
+        "old_path": result.old_path,
+        "new_path": result.new_path,
+        "moved": result.moved,
+        "was_split": result.was_split,
+        "dry_run": result.dry_run,
+        "index_path": "INDEX.md",
+        "next_steps": (
+            "Nothing was changed (dry run)."
+            if result.dry_run
+            else "Commit the move ('git add -A && git commit') to update the "
             "published shelf. INDEX.md has already been regenerated."
         ),
     }
@@ -551,15 +626,17 @@ def list_documents(params: ListDocumentsInput) -> dict:
     entries = shelf.scan()
     cfg = shelf.config
 
-    # Match the filter against the on-disk category slug, so the human form
-    # ("Research Papers") finds the "research-papers" directory.
+    # Match the filter against the *slugified* on-disk category, so the human
+    # form ("Research Papers") finds the "research-papers" directory — and a
+    # hand-created directory whose name isn't already a slug ("Mixed Case")
+    # is matched too (slug-to-slug), not just the generated ones.
     from docshelf_mcp.core.slugify import slugify
 
     filter_slug = slugify(params.category, max_len=80) if params.category else None
 
     grouped: dict[str, list[dict]] = {}
     for e in entries:
-        if filter_slug and e.category != filter_slug:
+        if filter_slug and slugify(e.category, max_len=80) != filter_slug:
             continue
         url = cfg.url_for(e.relative_path)
         grouped.setdefault(e.category, []).append(

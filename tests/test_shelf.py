@@ -479,6 +479,43 @@ def test_search_snippet_trims_and_collapses(tmp_path: Path):
     assert "NEEDLEZONE" in snip
 
 
+def test_search_caches_corpus_between_calls(tmp_path: Path, monkeypatch):
+    # A repeat search must not re-read unchanged files from disk.
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    shelf.add_document(FIXTURE, category="docs", title="Sample", split=False)
+
+    calls = {"n": 0}
+    orig = Path.read_text
+
+    def counting(self, *args, **kwargs):
+        if self.suffix == ".md" and "docs" in self.parts:
+            calls["n"] += 1
+        return orig(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", counting)
+
+    shelf.search("BGP")
+    first = calls["n"]
+    assert first >= 1  # first search reads from disk
+    shelf.search("BGP")
+    assert calls["n"] == first  # second search is served entirely from cache
+
+
+def test_search_cache_invalidates_when_file_changes(tmp_path: Path):
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    doc = tmp_path / "d.md"
+    doc.write_text("# D\n\nalpha keyword body\n", encoding="utf-8")
+    shelf.add_document(doc, category="c", title="D", split=False)
+    assert shelf.search("alpha")
+
+    # Edit the file directly (size changes) — the cache must refresh.
+    (shelf.root / "docs" / "c" / "d.md").write_text(
+        "# D\n\nbeta replacement content here now\n", encoding="utf-8"
+    )
+    assert shelf.search("alpha") == []  # stale cached text is not served
+    assert shelf.search("beta")  # new content is searchable
+
+
 def test_search_returns_empty_for_blank_query(tmp_path: Path):
     shelf = Shelf(tmp_path / "s").init(name="S")
     shelf.add_document(FIXTURE, category="docs", title="Sample", split=False)
@@ -534,6 +571,60 @@ def test_read_document_truncation_and_offset(tmp_path: Path):
     tail = shelf.read_document(rel, max_bytes=total, offset=total - 10)
     assert tail.truncated is False
     assert len(tail.content) == 10
+
+
+def test_read_document_truncation_snaps_utf8_boundary(tmp_path: Path):
+    # A cut in the middle of a multibyte character must not yield replacement
+    # chars: the slice snaps back to a character boundary.
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    doc = tmp_path / "u.md"
+    doc.write_text("# T\n\n" + "€" * 100, encoding="utf-8")  # € is 3 bytes
+    shelf.add_document(doc, category="c", title="Uni", split=False)
+
+    # max_bytes=7 lands mid-'€' (5 header bytes + 2 of a 3-byte char).
+    res = shelf.read_document("docs/c/uni.md", max_bytes=7)
+    assert "�" not in res.content  # no replacement character
+    assert res.truncated is True
+    assert res.next_offset <= 7  # trimmed back to the boundary
+
+
+def test_read_document_paging_with_next_offset_is_lossless(tmp_path: Path):
+    # Paging a multibyte file by next_offset reconstructs it exactly, with no
+    # dropped/duplicated characters and no replacement chars.
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    body = "Привет мир — €—中文 " * 40  # mixed 2/3-byte characters
+    doc = tmp_path / "cyr.md"
+    doc.write_text("# T\n\n" + body, encoding="utf-8")
+    shelf.add_document(doc, category="c", title="Cyr", split=False)
+    full = (shelf.root / "docs" / "c" / "cyr.md").read_text(encoding="utf-8")
+
+    pieces, offset, guard = [], 0, 0
+    while True:
+        guard += 1
+        assert guard < 10_000, "pager made no progress"
+        page = shelf.read_document("docs/c/cyr.md", max_bytes=8, offset=offset)
+        assert "�" not in page.content
+        pieces.append(page.content)
+        if not page.truncated:
+            break
+        assert page.next_offset > offset  # always advances
+        offset = page.next_offset
+    assert "".join(pieces) == full
+
+
+def test_read_document_max_bytes_smaller_than_char_still_progresses(tmp_path: Path):
+    # max_bytes below one character returns that whole character (over budget)
+    # rather than an empty page, so a pager can't stall.
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    doc = tmp_path / "one.md"
+    doc.write_text("€ and more text here", encoding="utf-8")
+    shelf.add_document(doc, category="c", title="One", split=False)
+    # Offset 0 is a heading ('# One' is prepended); jump to the '€'.
+    text = (shelf.root / "docs" / "c" / "one.md").read_text(encoding="utf-8")
+    euro_byte = text.encode("utf-8").index("€".encode())
+    page = shelf.read_document("docs/c/one.md", max_bytes=1, offset=euro_byte)
+    assert page.content.startswith("€")
+    assert page.next_offset == euro_byte + 3  # advanced a full 3-byte char
 
 
 def test_read_document_rejects_traversal(tmp_path: Path):
@@ -625,6 +716,100 @@ def test_remove_document_missing_raises(tmp_path: Path):
     # Path traversal in the document name never escapes the category dir.
     with pytest.raises(FileNotFoundError):
         shelf.remove_document(category="docs", document="../../INDEX.md")
+
+
+def test_rename_document_retitles_and_moves_meta(tmp_path: Path):
+    shelf = Shelf(tmp_path / "s").init(name="S", remote="https://github.com/me/r")
+    shelf.add_document(FIXTURE, category="docs", title="Old Title", split=False)
+
+    result = shelf.rename_document(
+        category="docs", document="Old Title", new_title="New Title"
+    )
+    assert result.moved is True
+    cat = shelf.root / "docs" / "docs"
+    assert not (cat / "old-title.md").exists()
+    assert (cat / "new-title.md").is_file()
+    meta = json.loads((cat / ".meta.json").read_text())
+    assert "old-title.md" not in meta
+    assert meta["new-title.md"]["title"] == "New Title"
+    idx = (shelf.root / "INDEX.md").read_text()
+    assert "New Title" in idx and "**Old Title**" not in idx
+
+
+def test_rename_document_moves_category_with_split(tmp_path: Path):
+    big = tmp_path / "big.md"
+    body = "Lorem ipsum dolor sit amet. " * 500
+    big.write_text("# T\n\n" + "\n\n".join(f"## S{i}\n\n{body}" for i in range(4)),
+                   encoding="utf-8")
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    shelf.add_document(big, category="misc", title="Manual", split=True)
+
+    result = shelf.rename_document(
+        category="misc", document="Manual", new_category="routers"
+    )
+    assert result.moved and result.was_split
+    old_cat = shelf.root / "docs" / "misc"
+    new_cat = shelf.root / "docs" / "routers"
+    assert not (old_cat / "manual.md").exists()
+    assert not (old_cat / "manual").exists()  # split dir moved too
+    assert (new_cat / "manual.md").is_file()
+    assert (new_cat / "manual" / "SUBINDEX.md").is_file()  # regenerated
+    # The old category's meta no longer references the moved doc (here it was
+    # the only entry, so the meta file is removed entirely).
+    old_meta = old_cat / ".meta.json"
+    assert not old_meta.exists() or "manual.md" not in json.loads(old_meta.read_text())
+    assert "manual.md" in json.loads((new_cat / ".meta.json").read_text())
+
+
+def test_rename_document_description_only_is_in_place(tmp_path: Path):
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    shelf.add_document(FIXTURE, category="docs", title="Doc", description="old",
+                       split=False)
+    result = shelf.rename_document(
+        category="docs", document="Doc", new_description="a much better description"
+    )
+    assert result.moved is False  # same slug, no file move
+    meta = json.loads((shelf.root / "docs" / "docs" / ".meta.json").read_text())
+    assert meta["doc.md"]["description"] == "a much better description"
+    assert meta["doc.md"]["title"] == "Doc"
+
+
+def test_rename_document_refuses_target_collision(tmp_path: Path):
+    from docshelf_mcp.core.shelf import DocumentExistsError
+
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    shelf.add_document(FIXTURE, category="docs", title="Alpha", split=False)
+    shelf.add_document(FIXTURE, category="docs", title="Beta", split=False)
+    with pytest.raises(DocumentExistsError):
+        shelf.rename_document(category="docs", document="Alpha", new_title="Beta")
+    # Both still present.
+    assert (shelf.root / "docs" / "docs" / "alpha.md").is_file()
+    assert (shelf.root / "docs" / "docs" / "beta.md").is_file()
+
+
+def test_rename_document_dry_run_touches_nothing(tmp_path: Path):
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    shelf.add_document(FIXTURE, category="docs", title="Stay", split=False)
+    result = shelf.rename_document(
+        category="docs", document="Stay", new_title="Renamed", dry_run=True
+    )
+    assert result.dry_run and result.moved
+    assert result.new_path == "docs/docs/renamed.md"
+    assert (shelf.root / "docs" / "docs" / "stay.md").is_file()
+    assert not (shelf.root / "docs" / "docs" / "renamed.md").exists()
+
+
+def test_rename_document_requires_a_change(tmp_path: Path):
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    shelf.add_document(FIXTURE, category="docs", title="Doc", split=False)
+    with pytest.raises(ValueError):
+        shelf.rename_document(category="docs", document="Doc")
+
+
+def test_rename_document_missing_raises(tmp_path: Path):
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    with pytest.raises(FileNotFoundError):
+        shelf.rename_document(category="docs", document="ghost", new_title="X")
 
 
 def test_doctor_clean_shelf_has_no_findings(tmp_path: Path):

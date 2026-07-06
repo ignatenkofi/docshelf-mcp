@@ -34,6 +34,25 @@ def test_raw_github_url_returns_empty_for_non_github():
     assert raw_github_url("", "main", "x.md") == ""
 
 
+def test_raw_github_url_github_enterprise_server():
+    # A self-hosted GHES host serves raw content from the same host under
+    # /<owner>/<repo>/raw/<branch>/<path> — not raw.githubusercontent.com.
+    assert (
+        raw_github_url("https://github.acme.com/team/docs", "main", "docs/x.md")
+        == "https://github.acme.com/team/docs/raw/main/docs/x.md"
+    )
+    # SSH form, and path segments are percent-encoded like the public path.
+    assert (
+        raw_github_url("git@github.corp.io:team/docs.git", "dev", "a b.md")
+        == "https://github.corp.io/team/docs/raw/dev/a%20b.md"
+    )
+    # github.com itself is unaffected (public raw host).
+    assert (
+        raw_github_url("https://github.com/me/repo", "main", "x.md")
+        == "https://raw.githubusercontent.com/me/repo/main/x.md"
+    )
+
+
 def test_raw_github_url_dotted_repo_name():
     # The headline bug: repo name with a dot used to truncate at the dot.
     assert (

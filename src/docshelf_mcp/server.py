@@ -21,20 +21,106 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+from pathlib import Path
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp.resources import FunctionResource
+from pydantic import AnyUrl
 
 from docshelf_mcp import __version__
 from docshelf_mcp import tools as t
+from docshelf_mcp.config import default_shelf_root
+from docshelf_mcp.core.shelf import SHELF_METADATA_FILENAME, Shelf
 
-__all__ = ["mcp", "main"]
+__all__ = ["mcp", "main", "register_shelf_resources"]
 
 
 logger = logging.getLogger("docshelf_mcp")
 
 
 mcp = FastMCP("docshelf_mcp")
+
+
+# --------------------------------------------------------------- resources
+
+#: URI scheme for shelf files exposed as MCP resources, e.g.
+#: ``docshelf:///docs/routers/mikrotik/003-firewall.md``.
+_RESOURCE_SCHEME = "docshelf"
+#: Cap a resource payload so a giant datasheet can't blow up a context window.
+_RESOURCE_MAX_BYTES = 1_000_000
+
+
+def _resource_uri(relative_path: str) -> str:
+    return f"{_RESOURCE_SCHEME}:///{relative_path}"
+
+
+def _read_shelf_file(shelf: Shelf, relative_path: str) -> str:
+    """Read a shelf file for a resource, capped and confined to the shelf root."""
+    root = shelf.root.resolve()
+    target = (shelf.root / relative_path).resolve()
+    if not target.is_relative_to(root) or not target.is_file():
+        raise ValueError(f"resource not available: {relative_path!r}")
+    return target.read_bytes()[:_RESOURCE_MAX_BYTES].decode("utf-8", errors="replace")
+
+
+def _add_file_resource(shelf: Shelf, relative_path: str, *, title: str) -> None:
+    mcp.add_resource(
+        FunctionResource(
+            uri=AnyUrl(_resource_uri(relative_path)),
+            name=relative_path,
+            title=title,
+            description=f"Shelf file {relative_path}",
+            mime_type="text/markdown",
+            fn=lambda rp=relative_path: _read_shelf_file(shelf, rp),
+        )
+    )
+
+
+def register_shelf_resources(shelf: Shelf | str | None = None) -> int:
+    """(Re)register one read-only MCP resource per shelf file and return the count.
+
+    Exposes ``INDEX.md`` plus every document and split section under ``docs/`` as
+    ``docshelf:///<relative-path>`` resources, so an MCP client can browse and
+    attach them natively (content is read fresh, capped, and confined to the
+    shelf). The set reflects the shelf at call time; it is re-synced on server
+    start and after each mutating tool call. Previously-registered ``docshelf:``
+    resources are cleared first, so removed documents drop out.
+    """
+    if shelf is None:
+        shelf = Shelf(default_shelf_root())
+    elif not isinstance(shelf, Shelf):
+        shelf = Shelf(shelf)
+
+    manager = mcp._resource_manager
+    for uri in [u for u in list(manager._resources) if str(u).startswith(f"{_RESOURCE_SCHEME}:")]:
+        del manager._resources[uri]
+
+    # Only an initialized shelf has resources to expose.
+    if not (shelf.root / SHELF_METADATA_FILENAME).is_file():
+        return 0
+
+    count = 0
+    if (shelf.root / "INDEX.md").is_file():
+        _add_file_resource(shelf, "INDEX.md", title=f"{shelf.config.name} — INDEX")
+        count += 1
+    for entry in shelf.scan():
+        _add_file_resource(shelf, entry.relative_path, title=entry.title)
+        count += 1
+        for section in entry.section_paths:
+            _add_file_resource(
+                shelf, section, title=f"{entry.title} — {Path(section).name}"
+            )
+            count += 1
+    return count
+
+
+def _sync_resources_safe(shelf_path: str | None) -> None:
+    """Re-sync resources for ``shelf_path`` after a mutating tool; never raises."""
+    try:
+        register_shelf_resources(Path(shelf_path).expanduser() if shelf_path else None)
+    except Exception:  # noqa: BLE001 — resource sync must not break a tool call
+        logger.debug("resource re-sync skipped", exc_info=True)
 
 
 def _serialize(payload: Any) -> str:
@@ -74,7 +160,9 @@ def init_shelf(params: t.InitShelfInput) -> str:
     Idempotent — safe to call on an existing shelf to update metadata.
     """
     try:
-        return _serialize(t.init_shelf(params))
+        payload = t.init_shelf(params)
+        _sync_resources_safe(params.shelf_path)
+        return _serialize(payload)
     except Exception as exc:
         return _error_response(exc, "init_shelf")
 
@@ -107,7 +195,9 @@ def add_document(params: t.AddDocumentInput) -> str:
       commit / push step.
     """
     try:
-        return _serialize(t.add_document(params))
+        payload = t.add_document(params)
+        _sync_resources_safe(params.shelf_path)
+        return _serialize(payload)
     except Exception as exc:
         return _error_response(exc, "add_document")
 
@@ -131,7 +221,9 @@ def add_directory(params: t.AddDirectoryInput) -> str:
     unreadable file is reported in ``failed`` without aborting the batch.
     """
     try:
-        return _serialize(t.add_directory(params))
+        payload = t.add_directory(params)
+        _sync_resources_safe(params.shelf_path)
+        return _serialize(payload)
     except Exception as exc:
         return _error_response(exc, "add_directory")
 
@@ -153,8 +245,11 @@ def read_document(params: t.ReadDocumentInput) -> str:
     purely-local shelves where the ``raw.githubusercontent.com`` fetch
     trick doesn't apply. Pass a ``relative_path`` from ``search`` /
     ``list_documents``. Large files are truncated to ``max_bytes`` (default
-    100 KB) with ``truncated: true``; page with ``offset`` or read the
-    individual split sections. Paths that escape ``docs/`` are rejected.
+    100 KB) with ``truncated: true``; page with the returned ``next_offset``
+    (slices snap to UTF-8 character boundaries, so it may differ from
+    ``offset + max_bytes`` — using it avoids splitting a multibyte character)
+    or read the individual split sections. Paths that escape ``docs/`` are
+    rejected.
     """
     try:
         return _serialize(t.read_document(params))
@@ -181,9 +276,39 @@ def remove_document(params: t.RemoveDocumentInput) -> str:
     the git commit / push step.
     """
     try:
-        return _serialize(t.remove_document(params))
+        payload = t.remove_document(params)
+        _sync_resources_safe(params.shelf_path)
+        return _serialize(payload)
     except Exception as exc:
         return _error_response(exc, "remove_document")
+
+
+@mcp.tool(
+    name="docshelf_rename_document",
+    annotations={
+        "title": "Rename or move a document",
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+)
+def rename_document(params: t.RenameDocumentInput) -> str:
+    """Retitle, recategorize, or re-describe a document — no re-conversion.
+
+    Moves the document ``.md``, its split-section directory, and its
+    ``.meta.json`` entry (changing the slug when the title changes, or the
+    directory when the category changes), then regenerates INDEX.md. Give at
+    least one of ``new_title`` / ``new_category`` / ``new_description``. Refuses
+    to clobber an existing target. Pass ``dry_run=true`` to preview. The caller
+    still owns the git commit / push step.
+    """
+    try:
+        payload = t.rename_document(params)
+        _sync_resources_safe(params.shelf_path)
+        return _serialize(payload)
+    except Exception as exc:
+        return _error_response(exc, "rename_document")
 
 
 @mcp.tool(
@@ -202,7 +327,9 @@ def rebuild_index(params: t.RebuildIndexInput) -> str:
     Useful after manual edits to ``docs/`` or ``.docshelf.json``.
     """
     try:
-        return _serialize(t.rebuild_index(params))
+        payload = t.rebuild_index(params)
+        _sync_resources_safe(params.shelf_path)
+        return _serialize(payload)
     except Exception as exc:
         return _error_response(exc, "rebuild_index")
 
@@ -311,8 +438,8 @@ def _build_parser() -> argparse.ArgumentParser:
             "MCP server for AI-friendly document shelves. Run with no "
             "arguments to start the stdio server (the default for Claude "
             "Desktop / Claude Code). Tools: init_shelf, add_document, "
-            "add_directory, read_document, remove_document, rebuild_index, "
-            "doctor, search, list_documents, convert_pdf."
+            "add_directory, read_document, remove_document, rename_document, "
+            "rebuild_index, doctor, search, list_documents, convert_pdf."
         ),
         epilog="Docs: https://github.com/ignatenkofi/docshelf-mcp",
     )
@@ -344,6 +471,14 @@ def main(argv: list[str] | None = None) -> None:
         level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
     logger.info("Starting docshelf-mcp %s", __version__)
+    # Expose the default shelf's files as MCP resources (best-effort; a missing
+    # or non-shelf DOCSHELF_ROOT just yields none). Tool calls re-sync after.
+    try:
+        n = register_shelf_resources()
+        if n:
+            logger.info("Registered %d shelf resource(s)", n)
+    except Exception:  # noqa: BLE001 — never block startup on resource sync
+        logger.debug("initial resource registration skipped", exc_info=True)
     mcp.run()
 
 
