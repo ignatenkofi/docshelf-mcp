@@ -37,6 +37,9 @@ __all__ = [
     "should_split",
     "lint_sections",
     "SectionWarning",
+    "body_char_count",
+    "is_empty_conversion",
+    "EMPTY_BODY_THRESHOLD",
 ]
 
 # Heuristic for "this `# ...` line is not really a chapter heading":
@@ -137,6 +140,41 @@ def clean_markdown(text: str) -> str:
     Returns the cleaned text (always ends with a single trailing newline).
     """
     return "\n".join(_clean_lines(text.splitlines())) + "\n"
+
+
+#: A Markdown heading line (``#`` … ``######``) — excluded from the body-text
+#: count, so a document that is *only* a title reads as empty.
+_HEADING_LINE_RE = re.compile(r"^\s{0,3}#{1,6}\s")
+
+#: Below this many non-whitespace body characters (headings excluded), a
+#: converted document is treated as effectively empty — the typical signature
+#: of a scanned / image-only PDF with no text layer. Detection only.
+EMPTY_BODY_THRESHOLD = 16
+
+
+def body_char_count(text: str) -> int:
+    """Count non-whitespace characters in ``text``, ignoring heading lines.
+
+    Used to tell a real document from a conversion that yielded only a title
+    (or nothing) — e.g. an image-only PDF. Heading lines are excluded so a bare
+    ``# Title`` with no body counts as zero.
+    """
+    count = 0
+    for line in text.splitlines():
+        if _HEADING_LINE_RE.match(line):
+            continue
+        count += len(re.sub(r"\s+", "", line))
+    return count
+
+
+def is_empty_conversion(text: str, threshold: int = EMPTY_BODY_THRESHOLD) -> bool:
+    """Whether ``text`` has essentially no body content (scanned/image source).
+
+    True when the non-whitespace body character count (see
+    :func:`body_char_count`) is below ``threshold``. Detection only — the caller
+    still keeps the file; this just lets it warn.
+    """
+    return body_char_count(text) < threshold
 
 
 def should_split(text: str, threshold_bytes: int = DEFAULT_SPLIT_THRESHOLD_BYTES) -> bool:

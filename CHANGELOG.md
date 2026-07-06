@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `add_document` / `add_directory` now emit an `empty-conversion` warning
+  when a source converts to little or no text (e.g. a scanned / image-only
+  PDF), so a silent empty document is visible; the file is still written.
+  `add_directory` responses carry per-file `warnings`. (#33)
 - **Measured demo + benchmark** — [`docs/demo.md`](docs/demo.md) quantifies
   the token savings on two real shelves (24 hardware manuals; a full novel),
   with a reproducible [`benchmarks/token_savings.py`](benchmarks/token_savings.py)
@@ -46,6 +50,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `search` responses now include `match_mode` (`"all"` or `"any"`). (#2)
 
 ### Fixed
+- Shelf metadata and index writes (`INDEX.md`, `SUBINDEX.md`,
+  `.docshelf.json`, `.meta.json`) are now **atomic** (temp file + `fsync` +
+  `os.replace`), so an interrupted write — kill, full disk, power loss — can
+  no longer leave a truncated file that silently resets config or drops every
+  title override. (#32)
 - `add_document` no longer silently overwrites a document when a *different*
   title/category slugifies onto the same file path — it raises
   `DocumentExistsError` instead (pass `overwrite=True` to replace on purpose;

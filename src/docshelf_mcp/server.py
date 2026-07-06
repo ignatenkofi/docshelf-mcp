@@ -100,6 +100,9 @@ def add_document(params: t.AddDocumentInput) -> str:
       document already occupies, the call errors instead of overwriting it —
       pass ``overwrite=true`` to replace it. Re-adding the same title updates
       in place. The response reports ``overwritten``.
+    * The response ``warnings`` include suspicious section headings and an
+      ``empty-conversion`` warning when the source yields little or no text
+      (e.g. a scanned / image-only PDF — consider ``quality='high'`` / OCR).
     * INDEX.md is regenerated automatically. The caller still owns the git
       commit / push step.
     """

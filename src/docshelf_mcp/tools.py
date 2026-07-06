@@ -402,6 +402,8 @@ def add_directory(params: AddDirectoryInput) -> dict:
                     "document_path": res.document_path.relative_to(shelf.root).as_posix(),
                     "was_split": res.was_split,
                     "section_count": len(res.section_paths),
+                    "warning_count": len(res.warnings),
+                    "warnings": [_warning_dict(w) for w in res.warnings],
                 }
             )
         else:

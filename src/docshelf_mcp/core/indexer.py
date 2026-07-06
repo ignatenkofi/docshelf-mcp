@@ -20,6 +20,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import quote
 
+from docshelf_mcp.core.fsutil import atomic_write_text
+
 __all__ = [
     "DocumentEntry",
     "build_index",
@@ -376,7 +378,7 @@ def write_subindexes(
             section_sizes=sizes,
         )
         path = shelf_root / _subindex_relpath(entry)
-        path.write_text(text, encoding="utf-8")
+        atomic_write_text(path, text)
         written.append(path)
     return written
 
