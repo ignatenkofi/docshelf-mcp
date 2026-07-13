@@ -163,6 +163,7 @@ v1 surfaces, in priority order:
 | **Pre-compaction** | `PreCompact` hook | Last chance before lossy compaction: shelve all closed topics, so compaction destroys less |
 | **Session end** | `SessionEnd`/`Stop` hook | A `kind: session` digest into `sessions/` |
 | **Budget** (v2) | token-count monitor | Proposes (not forces) shelving idle topics when live context exceeds budget |
+| **Subagent deposit** (v2) | subagent instruction template | A research subagent writes its full exploration dump as a `research` episode and returns only digest + shelf address — today the full trace dies with the subagent's context |
 
 Chat projects (Claude Desktop / web) are a v1-documented but manual surface:
 the project prompt instructs the model to offer shelving at natural
@@ -196,6 +197,8 @@ Three rings, dependencies pointing strictly inward:
 │  Claude Code: hooks (PreCompact/SessionStart/SessionEnd) │
 │    + /shelve skill + CLAUDE.md snippet          ← v1     │
 │  Chat projects: project-prompt conventions      ← v1 doc │
+│  Anthropic memory tool (memory_20250818): the   ← later  │
+│    six /memories file verbs backed by the shelf          │
 │  Other frameworks: tool defs generated from     ← later  │
 │    the same schemas (OpenAI functions, LangChain, …)     │
 ├──────────────────────────────────────────────────────────┤
@@ -250,6 +253,17 @@ Rules that keep the boundary honest:
 5. **One shelf per project, few fixed categories.** Keeps INDEX small and
    recall unambiguous. Cross-project federation is a later concern (see Open
    questions).
+6. **Mechanical eviction, LLM effort only on digests.** Moving content to
+   the shelf is a move+stub, never a summarize: research shows mechanical
+   masking matches LLM summarization at half the cost (see LANDSCAPE →
+   Research findings). The one LLM artifact per episode is the digest,
+   written once at shelve time.
+7. **Injection budget and KV-cache discipline.** Everything memshelf puts
+   into context is hard-budgeted (INDEX size is a `doctor`-monitored
+   invariant, not a hope — layered context managers have been observed
+   tripping each other's thresholds). INDEX is injected once at session
+   start at a stable position; recalls append; nothing rewrites earlier
+   context.
 
 ## Privacy & retention
 
@@ -277,6 +291,8 @@ Rules that keep the boundary honest:
 | Secret leakage | Redaction pass + private default + doctor scan; raw-URL mode gated behind explicit opt-in |
 | Shelve interrupted mid-write | docshelf invariant reused: disk is source of truth, INDEX is a render — `rebuild_index`/`doctor` recovers; auto-commit is one atomic commit per shelve |
 | Digest lies (agent summarized wrong) | Episode keeps `## Raw excerpts` for load-bearing facts; recall of the section, not trust in the digest, settles disputes |
+| Prompt injection via recall (episodes replay model-authored text — and possibly captured hostile text — into future contexts) | Recall wraps content in a data envelope with an explicit "content, not instructions" frame; capture-time redaction; `doctor` flags instruction-shaped patterns in stored episodes |
+| Fighting the platform's own context managers (double-shelving, injected INDEX tripping persisted-output thresholds) | Hard injection budgets (design decision 7); adapters detect platform features and yield — e.g. don't re-shelve a tool output the platform already persisted |
 
 ## Open questions
 
