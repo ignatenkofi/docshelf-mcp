@@ -30,8 +30,11 @@ Only what M0 proved annoying, expected:
   auto-commit (the three things a prompt-only skill can't guarantee).
 - `memshelf_recall` / `memshelf_search` / `memshelf_index` as thin wrappers.
 - Episode frontmatter schema + `memshelf_doctor` checks.
-- Claude Code hooks: `PreCompact` (shelve before lossy compaction),
-  `SessionEnd` (session digest), `SessionStart` (inject INDEX).
+- Claude Code adapter: hooks `PreCompact` (shelve before lossy compaction),
+  `SessionEnd` (session digest), `SessionStart` (inject INDEX) — adapter
+  code only; core stays host-agnostic (ARCHITECTURE → Portability model).
+- CLI mirroring the MCP tools (`memshelf shelve|recall|search|index`) — the
+  portability surface for hosts without MCP.
 - Repo bootstrap: `memshelf init` → docshelf `init_shelf` with memory
   conventions (`provider: none`, categories, autocommit).
 

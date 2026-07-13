@@ -73,6 +73,12 @@ recall fetch.
    sessions are ephemeral, and memory that isn't persisted the moment it is
    written is memory lost. This is a deliberate, documented departure from
    docshelf's non-goal — scoped strictly to the shelf's own repo.
+9. **Host-agnostic core, thin adapters.** v1 ships a Claude Code adapter
+   (hooks + skill), but the core library, the episode format, and the
+   MCP/CLI surfaces contain nothing Claude-specific. The shelf a Claude
+   session writes today must be recallable from any other MCP client — or
+   any LLM with mere file access — tomorrow. See ARCHITECTURE → Portability
+   model.
 
 ## Non-goals
 
