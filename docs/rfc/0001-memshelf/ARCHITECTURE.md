@@ -185,6 +185,49 @@ Design rule: every memshelf tool is a thin layer over `docshelf_mcp.Shelf`;
 anything generic enough for documents gets upstreamed to docshelf instead of
 living here.
 
+## Portability model
+
+v1 targets Claude Code / Cowork, but the design must not *belong* to it.
+Three rings, dependencies pointing strictly inward:
+
+```
+┌──────────────────────────────────────────────────────────┐
+│ HOST ADAPTERS (thin, per-surface, replaceable)           │
+│  Claude Code: hooks (PreCompact/SessionStart/SessionEnd) │
+│    + /shelve skill + CLAUDE.md snippet          ← v1     │
+│  Chat projects: project-prompt conventions      ← v1 doc │
+│  Other frameworks: tool defs generated from     ← later  │
+│    the same schemas (OpenAI functions, LangChain, …)     │
+├──────────────────────────────────────────────────────────┤
+│ PROTOCOL SURFACES (LLM-agnostic)                         │
+│  MCP server (works in any MCP client)                    │
+│  CLI (`memshelf shelve|recall|search|index`) — for hosts │
+│    without MCP: anything that can run a shell command    │
+├──────────────────────────────────────────────────────────┤
+│ CORE (host-agnostic pure library)                        │
+│  episode schema · digest contract · redaction ·          │
+│  shelf ops (docshelf) · retention/rollups ·              │
+│  prompt templates (recall rule, digest instructions)     │
+└──────────────────────────────────────────────────────────┘
+```
+
+Rules that keep the boundary honest:
+
+1. **Nothing host-specific in core or on disk.** The episode format contains
+   no vendor fields; `session` is an opaque string. A shelf written from
+   Claude Code is readable, appendable, and recallable from any other host.
+2. **Triggers are adapter territory.** Core exposes *operations* (shelve,
+   recall, …); adapters decide *when* to invoke them. PreCompact is a Claude
+   Code concept and stays in the Claude Code adapter; another host maps its
+   own lifecycle events to the same operations.
+3. **Prompts are core assets, rendered per adapter.** The recall rule and the
+   digest-writing instructions are host-neutral templates; each adapter
+   injects them its own way (hook output, project prompt, system message).
+4. **The on-disk shelf is the ultimate interop layer.** Plain Markdown + git:
+   an LLM with nothing but file access — no MCP, no CLI — can still read
+   INDEX.md and open an episode. Every ring above is convenience, not
+   lock-in.
+
 ## Design decisions
 
 1. **Agent-written digests, not a summarizer service.** The agent at offload

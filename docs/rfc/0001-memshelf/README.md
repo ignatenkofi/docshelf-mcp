@@ -43,3 +43,4 @@ pointer stays behind.
 | Date | Decision | By |
 |---|---|---|
 | 2026-07-13 | Draft created; form = companion project over docshelf, primary surface v1 = Claude Code / Cowork. Both revisitable — see Open questions in `ARCHITECTURE.md`. | draft |
+| 2026-07-13 | RFC base merged (PR #42). Author confirmed: v1 targets Claude Code, but the core must stay host-agnostic with room for other Claude surfaces and other LLMs → Portability model added to `ARCHITECTURE.md`, principle 9 to `MANIFEST.md`, CLI surface to M1. Direction itself open to discussion pending prior-art survey (`LANDSCAPE.md`, in progress). | author |
