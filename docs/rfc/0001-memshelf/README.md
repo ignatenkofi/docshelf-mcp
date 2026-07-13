@@ -25,7 +25,8 @@ turn or losing it to lossy auto-compaction.
 | File | What it covers |
 |---|---|
 | [`MANIFEST.md`](MANIFEST.md) | Why the project exists, principles, non-goals, relationship to docshelf |
-| [`ARCHITECTURE.md`](ARCHITECTURE.md) | Concepts, layers, shelf layout, episode format, MCP tool surface, trigger policy, privacy, failure modes |
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | Concepts, layers, shelf layout, episode format, MCP tool surface, trigger policy, portability model, privacy, failure modes |
+| [`LANDSCAPE.md`](LANDSCAPE.md) | Prior-art survey (2026-07), platform built-ins, positioning, alternative directions, risks |
 | [`ROADMAP.md`](ROADMAP.md) | Milestones M0–M3 with exit criteria |
 | [`examples/episode-example.md`](examples/episode-example.md) | A realistic offloaded episode file |
 | [`examples/INDEX-example.md`](examples/INDEX-example.md) | What the memory shelf's INDEX looks like |
@@ -44,3 +45,4 @@ pointer stays behind.
 |---|---|---|
 | 2026-07-13 | Draft created; form = companion project over docshelf, primary surface v1 = Claude Code / Cowork. Both revisitable — see Open questions in `ARCHITECTURE.md`. | draft |
 | 2026-07-13 | RFC base merged (PR #42). Author confirmed: v1 targets Claude Code, but the core must stay host-agnostic with room for other Claude surfaces and other LLMs → Portability model added to `ARCHITECTURE.md`, principle 9 to `MANIFEST.md`, CLI surface to M1. Direction itself open to discussion pending prior-art survey (`LANDSCAPE.md`, in progress). | author |
+| 2026-07-13 | Portability model merged (PR #43). Prior-art survey completed → `LANDSCAPE.md`: no existing project combines episodes+digests+git+INDEX-navigation; closest are claude-mem (loop, opaque substrate) and a long tail of ≤4-star siblings. Design amendments applied: mechanical eviction (design decision 6), injection budget / KV-cache discipline (7), prompt-injection-on-recall and platform-collision failure modes, subagent-deposit trigger (v2), memory-tool adapter in portability rings. Direction kept, scope sharpened; alternatives documented in `LANDSCAPE.md`. | draft, pending author review |
