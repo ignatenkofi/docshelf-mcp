@@ -303,6 +303,12 @@ For a deeper dive, see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — module
 
 ---
 
+## Related projects
+
+- **[memshelf-mcp](https://github.com/ignatenkofi/memshelf-mcp)** — the sibling project: the same index-and-fetch pattern applied to an **AI agent's own working memory**. Conversation episodes get offloaded to a private shelf with LLM-written digests; the agent keeps only `INDEX.md` in context and recalls sections on demand. Born as [RFC-0001](docs/rfc/0001-memshelf/) in this repo; uses docshelf as its storage/index layer.
+
+---
+
 ## Contributing
 
 Bug reports and PRs welcome. To set up a dev env:
