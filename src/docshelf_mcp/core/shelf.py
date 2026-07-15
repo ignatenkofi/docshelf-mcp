@@ -458,7 +458,7 @@ class Shelf:
                 section_paths = write_split_files(sections, split_dir)
                 was_split = True
                 warnings.extend(lint_sections(sections))
-        elif split_dir.is_dir():
+        elif split and split_dir.is_dir():
             # Document is no longer large enough — wipe the stale split.
             import shutil
 

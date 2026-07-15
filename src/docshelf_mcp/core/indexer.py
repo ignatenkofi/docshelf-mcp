@@ -303,6 +303,13 @@ def _pretty_section(section_relpath: str) -> str:
     stem = Path(section_relpath).stem
     stem = re.sub(r"^\d+-", "", stem)
     text = stem.replace("-", " ").replace("_", " ").strip()
+    # Keep Roman numerals uppercase (ii → II, iii → III, etc.)
+    _ROMAN_RE = re.compile(
+        r"^(?=[MDCLXVI])M*(C[MD]|D?C{0,3})(X[CL]|L?X{0,3})(I[XV]|V?I{0,3})$",
+        re.IGNORECASE,
+    )
+    if _ROMAN_RE.match(text):
+        return text.upper()
     return text.capitalize() if text else stem
 
 
