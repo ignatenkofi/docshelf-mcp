@@ -488,7 +488,7 @@ class Shelf:
         source_dir: Path | str,
         *,
         category: str,
-        pattern: Iterable[str] = ("*.pdf", "*.md"),
+        pattern: Iterable[str] = ("*.pdf", "*.md", "*.docx", "*.html", "*.htm", "*.epub"),
         split: bool = True,
         quality: Quality = "fast",
     ) -> list[dict]:

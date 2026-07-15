@@ -160,8 +160,8 @@ class AddDirectoryInput(_BaseInput):
         max_length=80,
     )
     patterns: list[str] = Field(
-        default_factory=lambda: ["*.pdf", "*.md"],
-        description="Glob patterns to include. Defaults to PDFs and Markdown.",
+        default_factory=lambda: ["*.pdf", "*.md", "*.docx", "*.html", "*.htm", "*.epub"],
+        description="Glob patterns to include. Defaults to PDFs, Markdown, DOCX, HTML, and EPUB.",
         max_length=16,
     )
     split: bool = Field(
