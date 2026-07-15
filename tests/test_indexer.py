@@ -5,6 +5,8 @@ from pathlib import Path
 from docshelf_mcp.core.indexer import (
     SUBINDEX_FILENAME,
     DocumentEntry,
+    _is_roman_numeral,
+    _pretty_section,
     build_index,
     build_subindex,
     raw_github_url,
@@ -375,3 +377,37 @@ def test_write_subindexes_and_scan_exclusion(tmp_path: Path):
     # And regeneration is idempotent.
     write_subindexes(tmp_path, entries2, remote="https://github.com/me/r")
     assert written[0].read_text(encoding="utf-8") == text
+
+
+def test_is_roman_numeral():
+    assert _is_roman_numeral("ii") is True
+    assert _is_roman_numeral("iii") is True
+    assert _is_roman_numeral("iv") is True
+    assert _is_roman_numeral("vi") is True
+    assert _is_roman_numeral("vii") is True
+    assert _is_roman_numeral("viii") is True
+    assert _is_roman_numeral("ix") is True
+    assert _is_roman_numeral("xiv") is True
+    assert _is_roman_numeral("xix") is True
+    assert _is_roman_numeral("xxiv") is True
+    # Not Roman numerals
+    assert _is_roman_numeral("") is False
+    assert _is_roman_numeral("power") is False
+    assert _is_roman_numeral("section1") is False
+    assert _is_roman_numeral("ii-intro") is False
+    assert _is_roman_numeral("a") is False
+
+
+def test_pretty_section_normal_words():
+    assert _pretty_section("001-power-supplies.md") == "Power supplies"
+    assert _pretty_section("002-firewall.md") == "Firewall"
+    assert _pretty_section("overview.md") == "Overview"
+
+
+def test_pretty_section_roman_numerals():
+    assert _pretty_section("ii.md") == "II"
+    assert _pretty_section("iii.md") == "III"
+    assert _pretty_section("004-vii.md") == "VII"
+    assert _pretty_section("xiv.md") == "XIV"
+    assert _pretty_section("007-ix.md") == "IX"
+    assert _pretty_section("xix.md") == "XIX"

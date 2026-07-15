@@ -303,7 +303,21 @@ def _pretty_section(section_relpath: str) -> str:
     stem = Path(section_relpath).stem
     stem = re.sub(r"^\d+-", "", stem)
     text = stem.replace("-", " ").replace("_", " ").strip()
-    return text.capitalize() if text else stem
+    if not text:
+        return stem
+    # Roman-numeral-only stems (e.g. "ii", "vii", "xiv") should be
+    # uppercased, not .capitalize()'d (which would produce "Ii", "Vii").
+    if _is_roman_numeral(text.lower().replace(" ", "")):
+        return text.upper()
+    return text.capitalize()
+
+
+_ROMAN_RE = re.compile(r"^[ivxlcdm]+$")
+
+
+def _is_roman_numeral(s: str) -> bool:
+    """Return True when *s* is a non-empty string of Roman numeral chars."""
+    return bool(s and _ROMAN_RE.fullmatch(s))
 
 
 def _subindex_relpath(entry: DocumentEntry) -> str:
