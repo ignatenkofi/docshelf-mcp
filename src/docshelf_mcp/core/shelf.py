@@ -203,6 +203,9 @@ class AddResult:
     #: True when this add replaced an existing document at the same path
     #: (an in-place update, or an explicit ``overwrite=True`` replacement).
     overwritten: bool = False
+    #: True when an existing split directory was removed because the document
+    #: no longer qualifies for splitting (content too small or too few headings).
+    unsplit: bool = False
 
 
 @dataclass
@@ -451,6 +454,7 @@ class Shelf:
 
         section_paths: list[Path] = []
         was_split = False
+        unsplit = False
         split_dir = category_dir / doc_stem
         if split and should_split(cleaned, self.config.split_threshold_bytes):
             sections = split_by_h2(cleaned)
@@ -458,11 +462,15 @@ class Shelf:
                 section_paths = write_split_files(sections, split_dir)
                 was_split = True
                 warnings.extend(lint_sections(sections))
-        elif split and split_dir.is_dir():
-            # Document is no longer large enough — wipe the stale split.
+        elif (
+            not should_split(cleaned, self.config.split_threshold_bytes)
+            and split_dir.is_dir()
+        ):
+            # Document no longer qualifies for splitting — wipe stale split dir.
             import shutil
 
             shutil.rmtree(split_dir)
+            unsplit = True
 
         # Record title/description in .meta.json for the indexer.
         self._update_category_meta(category_dir, doc_path.name, title, description)
@@ -479,6 +487,7 @@ class Shelf:
             converted_from_pdf=converted_from_pdf,
             warnings=warnings,
             overwritten=overwritten,
+            unsplit=unsplit,
         )
 
     # ------------------------------------------------------ add directory
