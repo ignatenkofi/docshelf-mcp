@@ -264,8 +264,9 @@ def test_add_document_unsluggable_titles_dont_collide_silently(tmp_path: Path):
     b.write_text("# B\n\nSECOND\n", encoding="utf-8")
 
     shelf.add_document(a, category="c", title="!!!", split=False)
-    # An unsluggable title falls back to slugify's own "section" stem.
-    assert (shelf.root / "docs" / "c" / "section.md").is_file()
+    # An unsluggable title now falls back to "document.md" because
+    # slugify returns "" for unsluggable input (or "document" fallback).
+    assert (shelf.root / "docs" / "c" / "document.md").is_file()
     with pytest.raises(DocumentExistsError):
         shelf.add_document(b, category="c", title="???", split=False)
 
