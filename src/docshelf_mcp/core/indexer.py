@@ -21,6 +21,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from docshelf_mcp.core.fsutil import atomic_write_text
+from docshelf_mcp.core.slugify import slugify
 
 __all__ = [
     "DocumentEntry",
@@ -271,7 +272,7 @@ def scan_shelf(shelf_root: Path) -> list[DocumentEntry]:
 
             entries.append(
                 DocumentEntry(
-                    category=category_dir.name,
+                    category=slugify(category_dir.name),
                     title=title,
                     description=description,
                     relative_path=str(md_file.relative_to(shelf_root).as_posix()),
