@@ -29,14 +29,14 @@ def slugify(text: str, max_len: int = 60) -> str:
         max_len: Maximum slug length in characters. Default 60.
 
     Returns:
-        A non-empty slug. If the input slugifies to nothing (pure punctuation
-        or whitespace), returns the literal ``"section"``.
+        A slug. May be empty for punctuation-only or whitespace-only
+        input, allowing callers to chain with ``or`` fallbacks.
 
     Example:
         >>> slugify("Chapter 4: Power Supplies")
         'chapter-4-power-supplies'
         >>> slugify("   ")
-        'section'
+        ''
     """
     text = unicodedata.normalize("NFKD", text)
     text = re.sub(r"\.+$", "", text.strip())
@@ -45,4 +45,4 @@ def slugify(text: str, max_len: int = 60) -> str:
     text = text.lower()
     if len(text) > max_len:
         text = text[:max_len].rstrip("-")
-    return text or "section"
+    return text
