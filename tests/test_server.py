@@ -647,7 +647,9 @@ def test_resource_read_small_file_untouched(tmp_path: Path):
 
     shelf = Shelf(tmp_path / "s").init(name="S")
     small = shelf.root / "docs" / "small.md"
-    small.write_text("# Привет\n", encoding="utf-8")
+    # write_bytes: Windows write_text would translate \n -> \r\n, and the
+    # resource returns raw bytes decoded.
+    small.write_bytes("# Привет\n".encode())
     text = server._read_shelf_file(shelf, "docs/small.md")
     assert text == "# Привет\n"  # no trailer on an un-truncated read
 
