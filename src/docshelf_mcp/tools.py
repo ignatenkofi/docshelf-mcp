@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -390,7 +389,7 @@ class InitShelfInput(_BaseInput):
     )
 
     @model_validator(mode="after")
-    def _custom_needs_template(self) -> "InitShelfInput":
+    def _custom_needs_template(self) -> InitShelfInput:
         if self.provider == "custom" and not self.url_template:
             raise ValueError(
                 "provider 'custom' needs url_template with {owner}/{repo}/"

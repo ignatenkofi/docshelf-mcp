@@ -308,9 +308,9 @@ def _load_meta(category_dir: Path) -> dict[str, dict]:
         if not isinstance(value, dict):
             continue
         entry = dict(value)
-        for field in ("title", "description"):
-            if field in entry and not isinstance(entry[field], str):
-                del entry[field]
+        for meta_field in ("title", "description"):
+            if meta_field in entry and not isinstance(entry[meta_field], str):
+                del entry[meta_field]
         meta[str(key)] = entry
     return meta
 
