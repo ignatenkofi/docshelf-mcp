@@ -283,13 +283,36 @@ def scan_shelf(shelf_root: Path) -> list[DocumentEntry]:
 
 
 def _load_meta(category_dir: Path) -> dict[str, dict]:
+    """Load ``.meta.json`` coerced to the documented dict-of-dicts shape.
+
+    The file is hand-editable (docs/USAGE.md), so any valid-JSON shape must
+    not crash the scan (#65): a non-dict top level is ignored, a bare-string
+    entry is treated as its title, other non-dict entries (and non-string
+    title/description fields) are dropped. ``doctor`` reports the deviations
+    via its ``meta-shape`` rule instead of dying on them.
+    """
     meta_path = category_dir / ".meta.json"
     if not meta_path.is_file():
         return {}
     try:
-        return json.loads(meta_path.read_text(encoding="utf-8"))
+        raw = json.loads(meta_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
+    if not isinstance(raw, dict):
+        return {}
+    meta: dict[str, dict] = {}
+    for key, value in raw.items():
+        if isinstance(value, str):
+            meta[str(key)] = {"title": value}
+            continue
+        if not isinstance(value, dict):
+            continue
+        entry = dict(value)
+        for field in ("title", "description"):
+            if field in entry and not isinstance(entry[field], str):
+                del entry[field]
+        meta[str(key)] = entry
+    return meta
 
 
 def _title_from_filename(stem: str) -> str:

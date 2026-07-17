@@ -31,7 +31,7 @@ from pydantic import AnyUrl
 from docshelf_mcp import __version__
 from docshelf_mcp import tools as t
 from docshelf_mcp.config import default_shelf_root
-from docshelf_mcp.core.shelf import SHELF_METADATA_FILENAME, Shelf
+from docshelf_mcp.core.shelf import SHELF_METADATA_FILENAME, Shelf, _utf8_safe_bounds
 
 __all__ = ["mcp", "main", "register_shelf_resources"]
 
@@ -56,12 +56,26 @@ def _resource_uri(relative_path: str) -> str:
 
 
 def _read_shelf_file(shelf: Shelf, relative_path: str) -> str:
-    """Read a shelf file for a resource, capped and confined to the shelf root."""
+    """Read a shelf file for a resource, capped and confined to the shelf root.
+
+    The cap is snapped to a UTF-8 character boundary (#68 — the naive byte
+    slice decoded a straddling multibyte character as U+FFFD, same defect #30
+    fixed for ``read_document``), and a truncated read says so instead of
+    silently ending at exactly the cap.
+    """
     root = shelf.root.resolve()
     target = (shelf.root / relative_path).resolve()
     if not target.is_relative_to(root) or not target.is_file():
         raise ValueError(f"resource not available: {relative_path!r}")
-    return target.read_bytes()[:_RESOURCE_MAX_BYTES].decode("utf-8", errors="replace")
+    data = target.read_bytes()
+    if len(data) <= _RESOURCE_MAX_BYTES:
+        return data.decode("utf-8", errors="replace")
+    start, end = _utf8_safe_bounds(data, 0, _RESOURCE_MAX_BYTES)
+    return (
+        data[start:end].decode("utf-8", errors="replace")
+        + f"\n\n[docshelf: truncated at {_RESOURCE_MAX_BYTES} bytes — use the "
+        "docshelf_read_document tool with paging for the rest]\n"
+    )
 
 
 def _add_file_resource(shelf: Shelf, relative_path: str, *, title: str) -> None:

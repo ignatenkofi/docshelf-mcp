@@ -619,3 +619,69 @@ def test_tools_to_json_is_human_readable():
     parsed = json.loads(out)
     assert parsed["status"] == "ok"
     assert "\n" in out  # pretty-printed (indent=2)
+
+
+# -- issue #68: resource reads snap the cap to a UTF-8 boundary --------------
+
+
+def test_resource_read_snaps_utf8_and_flags_truncation(tmp_path: Path, monkeypatch):
+    from docshelf_mcp import server
+    from docshelf_mcp.core.shelf import Shelf
+
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    big = shelf.root / "docs" / "big.md"
+    # 1 ASCII byte + 60 two-byte chars = 121 bytes; a 102-byte cap lands
+    # mid-character (byte 102 is a continuation byte), the exact #30 defect.
+    big.write_bytes(b"a" + ("я" * 60).encode("utf-8"))
+    monkeypatch.setattr(server, "_RESOURCE_MAX_BYTES", 102)
+
+    text = server._read_shelf_file(shelf, "docs/big.md")
+    assert "�" not in text  # no boundary-induced replacement character
+    assert "truncated at 102 bytes" in text  # the consumer can tell it was cut
+    assert text.startswith("a" + "я" * 50)
+
+
+def test_resource_read_small_file_untouched(tmp_path: Path):
+    from docshelf_mcp import server
+    from docshelf_mcp.core.shelf import Shelf
+
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    small = shelf.root / "docs" / "small.md"
+    small.write_text("# Привет\n", encoding="utf-8")
+    text = server._read_shelf_file(shelf, "docs/small.md")
+    assert text == "# Привет\n"  # no trailer on an un-truncated read
+
+
+# -- issue #67: provider validation at the tool boundary ---------------------
+
+
+def test_init_input_provider_literal_matches_url_providers():
+    from typing import get_args
+
+    from docshelf_mcp.core.indexer import URL_PROVIDERS
+
+    annotation = t.InitShelfInput.model_fields["provider"].annotation
+    assert set(get_args(annotation)) == set(URL_PROVIDERS)
+
+
+def test_init_input_rejects_typo_provider(tmp_path: Path):
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        t.InitShelfInput(shelf_path=str(tmp_path / "s"), provider="giltab")
+
+
+def test_init_input_rejects_custom_without_template(tmp_path: Path):
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="url_template"):
+        t.InitShelfInput(shelf_path=str(tmp_path / "s"), provider="custom")
+
+
+def test_init_input_accepts_custom_with_template(tmp_path: Path):
+    params = t.InitShelfInput(
+        shelf_path=str(tmp_path / "s"),
+        provider="custom",
+        url_template="https://cdn.example/{path}",
+    )
+    assert params.provider == "custom"
