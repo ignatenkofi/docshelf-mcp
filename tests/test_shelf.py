@@ -915,3 +915,114 @@ def test_gitlab_provider_enriches_search_and_read(tmp_path: Path):
     assert hit["raw_url"] == (
         "https://gitlab.com/grp/proj/-/raw/main/docs/docs/sample.md"
     )
+
+
+# -- issue #65: hand-edited .meta.json of any JSON shape must not crash ------
+
+
+def _write_meta(shelf: Shelf, category: str, payload) -> Path:
+    meta = shelf.root / "docs" / category / ".meta.json"
+    meta.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    return meta
+
+
+def test_meta_bare_string_entry_scans_as_title_and_doctor_reports(tmp_path: Path):
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    shelf.add_document(FIXTURE, category="guides", title="Foo", split=False)
+    _write_meta(shelf, "guides", {"foo.md": "My hand-written title"})
+    entries = shelf.scan()  # must not raise (was AttributeError)
+    assert [e.title for e in entries] == ["My hand-written title"]
+    shelf.rebuild_index()
+    shelf.doctor(fix=True)  # doctor must run, not die
+    findings = shelf.doctor()
+    assert any(f.rule == "meta-shape" and f.severity == "error" for f in findings)
+
+
+def test_meta_list_top_level_scans_and_doctor_reports(tmp_path: Path):
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    shelf.add_document(FIXTURE, category="guides", title="Foo", split=False)
+    _write_meta(shelf, "guides", ["not", "a", "dict"])
+    entries = shelf.scan()
+    assert entries and entries[0].title  # falls back to filename-derived title
+    findings = shelf.doctor()
+    assert any(f.rule == "meta-shape" and f.severity == "error" for f in findings)
+
+
+def test_meta_non_string_title_scans_and_doctor_reports(tmp_path: Path):
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    shelf.add_document(FIXTURE, category="guides", title="Foo", split=False)
+    _write_meta(shelf, "guides", {"foo.md": {"title": 5, "description": "ok"}})
+    entries = shelf.scan()
+    assert entries[0].title  # non-string title dropped, fallback used
+    assert entries[0].description == "ok"
+    findings = shelf.doctor()
+    assert any(f.rule == "meta-shape" for f in findings)
+
+
+# -- issue #66: rename must not tear the shelf on a split-dir collision ------
+
+
+def test_rename_refuses_when_split_target_dir_exists(tmp_path: Path):
+    from docshelf_mcp.core.shelf import DocumentExistsError
+
+    big = tmp_path / "big.md"
+    body = "Lorem ipsum dolor sit amet. " * 500
+    big.write_text("# T\n\n" + "\n\n".join(f"## S{i}\n\n{body}" for i in range(4)),
+                   encoding="utf-8")
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    shelf.add_document(big, category="guides", title="Old Title", split=True)
+    cat = shelf.root / "docs" / "guides"
+    orphan = cat / "new-title"
+    orphan.mkdir()
+    (orphan / "001-junk.md").write_text("junk\n", encoding="utf-8")
+
+    with pytest.raises(DocumentExistsError):
+        shelf.rename_document(
+            category="guides", document="Old Title", new_title="New Title"
+        )
+    # Disk untouched: parent doc, its sections and meta all still at old slug.
+    assert (cat / "old-title.md").is_file()
+    assert (cat / "old-title").is_dir()
+    assert not (cat / "new-title.md").exists()
+    assert "old-title.md" in json.loads((cat / ".meta.json").read_text())
+
+
+# -- issue #67: provider config that can't render URLs fails fast ------------
+
+
+def test_init_rejects_unknown_provider(tmp_path: Path):
+    with pytest.raises(ValueError, match="giltab"):
+        Shelf(tmp_path / "s").init(name="S", provider="giltab")
+
+
+def test_init_rejects_custom_without_template(tmp_path: Path):
+    with pytest.raises(ValueError, match="url_template"):
+        Shelf(tmp_path / "s").init(name="S", provider="custom")
+
+
+def test_init_accepts_custom_with_template(tmp_path: Path):
+    shelf = Shelf(tmp_path / "s").init(
+        name="S", provider="custom", url_template="https://cdn.example/{path}"
+    )
+    assert shelf.config.provider == "custom"
+
+
+def test_doctor_flags_hand_edited_provider_config(tmp_path: Path):
+    from docshelf_mcp.core.shelf import SHELF_METADATA_FILENAME
+
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    cfg_path = shelf.root / SHELF_METADATA_FILENAME
+    cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+
+    cfg["provider"] = "giltab"  # typo'd by hand
+    cfg_path.write_text(json.dumps(cfg), encoding="utf-8")
+    findings = Shelf(shelf.root).doctor()
+    assert any(f.rule == "unknown-provider" and f.severity == "error"
+               for f in findings)
+
+    cfg["provider"] = "custom"
+    cfg["url_template"] = ""
+    cfg_path.write_text(json.dumps(cfg), encoding="utf-8")
+    findings = Shelf(shelf.root).doctor()
+    assert any(f.rule == "custom-without-template" and f.severity == "error"
+               for f in findings)

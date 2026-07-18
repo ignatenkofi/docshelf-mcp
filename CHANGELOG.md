@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- A shape-invalid `.meta.json` (valid JSON, wrong shape — e.g. a bare-string
+  entry or a list top level) no longer crashes `scan_shelf` and every tool on
+  top of it, including `doctor`. The scan coerces what it can (a bare string
+  becomes the title, non-string fields are dropped) and `doctor` reports the
+  deviation via the new `meta-shape` rule instead of dying. (#65)
+- `rename_document` pre-flights the split-directory target: renaming onto an
+  existing (e.g. orphaned) split dir now fails cleanly before disk is
+  touched, and a mid-move failure rolls the parent `.md` back — no more
+  half-renamed shelves. (#66)
+- An unknown `provider` (or `custom` without `url_template`) is rejected at
+  `init_shelf` / `Shelf.init` instead of silently rendering a link-less
+  INDEX; `doctor` flags a hand-edited config via the new `unknown-provider` /
+  `custom-without-template` rules. (#67)
+- MCP resource reads snap the 1 MB cap to a UTF-8 character boundary (the
+  same defect #30 fixed for `read_document`) and append a truncation notice,
+  so an oversized file no longer ends in U+FFFD mid-character with no hint
+  that more exists. (#68)
+
 ### Added
 - `docshelf_rename_document` tool (+ `Shelf.rename_document`) — retitle,
   recategorize, or re-describe a document without re-adding it. Moves the

@@ -40,6 +40,7 @@ from docshelf_mcp.core.indexer import (
     DEFAULT_PREAMBLE,
     DEFAULT_SUBINDEX_THRESHOLD,
     SUBINDEX_FILENAME,
+    URL_PROVIDERS,
     DocumentEntry,
     _title_from_filename,
     build_index,
@@ -308,6 +309,19 @@ class Shelf:
 
         Idempotent: existing files and directories are preserved.
         """
+        # Fail fast on a provider config that can only render a link-less
+        # INDEX (#67); a hand-edited .docshelf.json is covered by doctor's
+        # unknown-provider / custom-without-template rules instead.
+        if provider and provider not in URL_PROVIDERS:
+            raise ValueError(
+                f"unknown provider {provider!r}; expected one of: "
+                + ", ".join(URL_PROVIDERS)
+            )
+        if provider == "custom" and not url_template:
+            raise ValueError(
+                "provider 'custom' needs url_template with {owner}/{repo}/"
+                "{branch}/{path} placeholders"
+            )
         self.root.mkdir(parents=True, exist_ok=True)
         (self.root / "docs").mkdir(exist_ok=True)
 
@@ -743,13 +757,31 @@ class Shelf:
 
         old_split = category_dir / doc_path.stem
         was_split = old_split.is_dir()
+        new_split = new_cat_dir / new_stem
+        # Pre-flight the split-dir target too (#66): an orphaned directory at
+        # the destination would make the second rename below fail AFTER the
+        # parent .md already moved, leaving the shelf half-renamed.
+        if moved and was_split and new_split.exists():
+            raise DocumentExistsError(
+                f"{new_split.relative_to(self.root).as_posix()} already exists; "
+                "the split directory can't move there — remove or rename the "
+                "existing directory first (doctor reports it as "
+                "orphaned-split-dir)."
+            )
 
         if not dry_run:
             if moved:
                 new_cat_dir.mkdir(parents=True, exist_ok=True)
                 doc_path.rename(new_doc_path)
                 if was_split:
-                    old_split.rename(new_cat_dir / new_stem)
+                    try:
+                        old_split.rename(new_split)
+                    except OSError:
+                        # Roll the parent file back: a failed split move must
+                        # not leave the document renamed with its sections,
+                        # meta and INDEX stranded at the old slug (#66).
+                        new_doc_path.rename(doc_path)
+                        raise
                 self._prune_category_meta(category_dir, doc_path.name)
                 self._search_cache.pop(doc_path, None)
             self._update_category_meta(
@@ -982,7 +1014,28 @@ class Shelf:
                         "corrupt-meta", "error", rel(meta_path),
                         "`.meta.json` is not valid JSON",
                         "fix or delete the file, then rebuild_index"))
+                # meta-shape: valid JSON of the wrong shape (#65). The scan
+                # coerces what it can (a bare string becomes the title), but
+                # the file should be brought back to the documented shape.
+                if data is not None and not isinstance(data, dict):
+                    findings.append(DoctorFinding(
+                        "meta-shape", "error", rel(meta_path),
+                        "top level must be an object mapping '<doc>.md' to "
+                        '{"title": ..., "description": ...}',
+                        "rewrite the file to the documented shape"))
                 if isinstance(data, dict):
+                    bad_shape = sorted(
+                        str(k) for k, v in data.items()
+                        if not isinstance(v, dict) or any(
+                            f in v and not isinstance(v[f], str)
+                            for f in ("title", "description")))
+                    if bad_shape:
+                        findings.append(DoctorFinding(
+                            "meta-shape", "error", rel(meta_path),
+                            "entries not shaped as objects with string "
+                            "title/description: " + ", ".join(bad_shape),
+                            'rewrite each entry as {"title": "...", '
+                            '"description": "..."}'))
                     stale = sorted(k for k in data if not (category_dir / k).is_file())
                     for k in stale:
                         f = DoctorFinding(
@@ -1049,6 +1102,26 @@ class Shelf:
                         "duplicate-title", "warning", p,
                         f"title duplicates another document in '{cat}'",
                         "give one of the documents a distinct title"))
+
+        # unknown-provider / custom-without-template: stored URL config that
+        # makes shelf_url() return "" for every entry — the INDEX renders
+        # with no links and nothing else complains (#67). Covers hand-edited
+        # .docshelf.json; init_shelf validates the same thing up front.
+        provider = self.config.provider or "github"
+        if provider not in URL_PROVIDERS:
+            findings.append(DoctorFinding(
+                "unknown-provider", "error", SHELF_METADATA_FILENAME,
+                f"provider '{provider}' is not one of: "
+                + ", ".join(URL_PROVIDERS)
+                + " — every INDEX link renders empty",
+                "set a supported provider (init_shelf or edit the file)"))
+        elif provider == "custom" and not self.config.url_template:
+            findings.append(DoctorFinding(
+                "custom-without-template", "error", SHELF_METADATA_FILENAME,
+                "provider 'custom' has no url_template — every INDEX link "
+                "renders empty",
+                "set url_template with {owner}/{repo}/{branch}/{path} "
+                "placeholders"))
 
         # stale-index: INDEX.md content differs from a fresh render.
         index_path = self.root / "INDEX.md"

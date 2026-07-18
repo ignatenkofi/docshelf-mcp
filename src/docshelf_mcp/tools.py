@@ -13,8 +13,9 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from docshelf_mcp.config import default_shelf_root
 from docshelf_mcp.core.converter import Quality, pdf_to_markdown
@@ -371,7 +372,10 @@ class InitShelfInput(_BaseInput):
         min_length=1,
         max_length=100,
     )
-    provider: str = Field(
+    # Keep the Literal in sync with indexer.URL_PROVIDERS (asserted in tests):
+    # a typo'd provider must fail at the tool boundary, not render a link-less
+    # INDEX with no warning (#67).
+    provider: Literal["github", "gitlab", "gitea", "custom", "none"] = Field(
         default="github",
         description="URL provider for generated links: 'github' (default), "
         "'gitlab', 'gitea', 'custom' (uses url_template), or 'none' (relative "
@@ -383,6 +387,15 @@ class InitShelfInput(_BaseInput):
         "{branch}, {path} placeholders. Covers S3, R2, or any static host.",
         max_length=500,
     )
+
+    @model_validator(mode="after")
+    def _custom_needs_template(self) -> InitShelfInput:
+        if self.provider == "custom" and not self.url_template:
+            raise ValueError(
+                "provider 'custom' needs url_template with {owner}/{repo}/"
+                "{branch}/{path} placeholders"
+            )
+        return self
 
 
 # --------------------------------------------------------------- wrappers
