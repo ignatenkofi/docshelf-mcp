@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import OrderedDict
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -70,6 +71,16 @@ __all__ = [
     "DoctorFinding",
     "DocumentExistsError",
 ]
+
+#: Process-wide search corpus cache: absolute path → (mtime, size, text).
+#: Shared across :class:`Shelf` instances so a repeat ``search`` skips re-reading
+#: unchanged files even when each MCP tool call builds a fresh ``Shelf`` via
+#: ``tools._resolve_shelf`` (#50) — an instance attribute never survived across
+#: calls. Bounded LRU so a long-running server doesn't grow without limit; each
+#: entry is re-validated against the file's ``(mtime, size)`` before use, so a
+#: stale entry is never served.
+_CORPUS_CACHE_MAX = 512
+_corpus_cache: OrderedDict[Path, tuple[float, int, str]] = OrderedDict()
 
 
 class DocumentExistsError(Exception):
@@ -204,6 +215,9 @@ class AddResult:
     #: True when this add replaced an existing document at the same path
     #: (an in-place update, or an explicit ``overwrite=True`` replacement).
     overwritten: bool = False
+    #: True when this add wiped an existing split directory because the new
+    #: content no longer qualifies for splitting (its sections were removed).
+    unsplit: bool = False
 
 
 @dataclass
@@ -277,10 +291,6 @@ class Shelf:
     def __init__(self, root: Path | str) -> None:
         self.root = Path(root).expanduser().resolve()
         self._config: ShelfConfig | None = None
-        #: In-process search corpus cache: path → (mtime, size, text). Lets a
-        #: repeat :meth:`search` skip re-reading unchanged files from disk;
-        #: invalidated per file on any mtime/size change.
-        self._search_cache: dict[Path, tuple[float, int, str]] = {}
 
     # ------------------------------------------------------------------ config
 
@@ -465,6 +475,7 @@ class Shelf:
 
         section_paths: list[Path] = []
         was_split = False
+        unsplit = False
         split_dir = category_dir / doc_stem
         if split and should_split(cleaned, self.config.split_threshold_bytes):
             sections = split_by_h2(cleaned)
@@ -472,11 +483,18 @@ class Shelf:
                 section_paths = write_split_files(sections, split_dir)
                 was_split = True
                 warnings.extend(lint_sections(sections))
-        elif split_dir.is_dir():
-            # Document is no longer large enough — wipe the stale split.
+        elif split_dir.is_dir() and not should_split(
+            cleaned, self.config.split_threshold_bytes
+        ):
+            # The new content no longer qualifies for splitting, so its old
+            # section files are stale — wipe them. Gated on the *content*, not
+            # the `split` argument: re-adding still-splittable content with
+            # split=False leaves the existing valid split intact instead of
+            # silently collapsing it (#47).
             import shutil
 
             shutil.rmtree(split_dir)
+            unsplit = True
 
         # Record title/description in .meta.json for the indexer.
         self._update_category_meta(category_dir, doc_path.name, title, description)
@@ -493,6 +511,7 @@ class Shelf:
             converted_from_pdf=converted_from_pdf,
             warnings=warnings,
             overwritten=overwritten,
+            unsplit=unsplit,
         )
 
     # ------------------------------------------------------ add directory
@@ -783,7 +802,7 @@ class Shelf:
                         new_doc_path.rename(doc_path)
                         raise
                 self._prune_category_meta(category_dir, doc_path.name)
-                self._search_cache.pop(doc_path, None)
+                _corpus_cache.pop(doc_path, None)
             self._update_category_meta(
                 new_cat_dir, new_doc_path.name, title, description
             )
@@ -1103,6 +1122,27 @@ class Shelf:
                         f"title duplicates another document in '{cat}'",
                         "give one of the documents a distinct title"))
 
+        # colliding-category-dirs: two+ literal category directories that
+        # slugify to the same slug (e.g. "Research Papers" and
+        # "research-papers"). They render duplicate INDEX headers and merge
+        # ambiguously under the slug-based category filter (#31), yet the
+        # per-category checks above key on each literal dir name and never see
+        # it (#49). Group by slug and flag any slug backed by more than one dir.
+        by_slug: dict[str, list[str]] = {}
+        for category_dir in sorted(p for p in docs_root.iterdir() if p.is_dir()):
+            by_slug.setdefault(slugify(category_dir.name, max_len=80), []).append(
+                category_dir.name)
+        for slug, names in sorted(by_slug.items()):
+            if len(names) > 1:
+                quoted = ", ".join(repr(n) for n in sorted(names))
+                findings.append(DoctorFinding(
+                    "colliding-category-dirs", "warning", "docs",
+                    f"category directories {quoted} all map to slug '{slug}' — "
+                    "they render duplicate INDEX headers and merge ambiguously "
+                    "under the category filter",
+                    "merge them into one directory (or rename so their slugs "
+                    "differ)"))
+
         # unknown-provider / custom-without-template: stored URL config that
         # makes shelf_url() return "" for every entry — the INDEX renders
         # with no links and nothing else complains (#67). Covers hand-edited
@@ -1238,12 +1278,16 @@ class Shelf:
             st = path.stat()
         except OSError:
             return None
-        entry = self._search_cache.get(path)
+        entry = _corpus_cache.get(path)
         if entry is not None and entry[0] == st.st_mtime and entry[1] == st.st_size:
+            _corpus_cache.move_to_end(path)
             return entry[2], entry[1]
         try:
             text = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             return None
-        self._search_cache[path] = (st.st_mtime, st.st_size, text)
+        _corpus_cache[path] = (st.st_mtime, st.st_size, text)
+        _corpus_cache.move_to_end(path)
+        while len(_corpus_cache) > _CORPUS_CACHE_MAX:
+            _corpus_cache.popitem(last=False)
         return text, st.st_size

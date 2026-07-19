@@ -1026,3 +1026,75 @@ def test_doctor_flags_hand_edited_provider_config(tmp_path: Path):
     findings = Shelf(shelf.root).doctor()
     assert any(f.rule == "custom-without-template" and f.severity == "error"
                for f in findings)
+
+
+def test_readd_splittable_content_with_split_false_keeps_split(tmp_path: Path):
+    # #47: re-adding still-splittable content with split=False must NOT wipe an
+    # existing valid split. The cleanup is gated on the content no longer
+    # qualifying, not on the split argument alone.
+    big_md = tmp_path / "big.md"
+    chapter_body = "Lorem ipsum dolor sit amet. " * 500
+    text = "# Title\n\n" + "\n\n".join(
+        f"## Section {i}\n\n{chapter_body}" for i in range(5)
+    )
+    big_md.write_text(text, encoding="utf-8")
+
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    first = shelf.add_document(big_md, category="big", title="Doc", split=True)
+    assert first.was_split
+    split_dir = first.document_path.parent / first.document_path.stem
+    assert split_dir.is_dir()
+
+    # Re-add identical (still-splittable) content, this time with split=False.
+    second = shelf.add_document(
+        big_md, category="big", title="Doc", split=False, overwrite=True
+    )
+    assert not second.unsplit  # nothing was destroyed
+    assert split_dir.is_dir()  # the valid split survives
+    assert list(split_dir.glob("*.md"))
+
+
+def test_readd_small_content_with_split_false_wipes_stale_split(tmp_path: Path):
+    # #47: when the new content genuinely no longer qualifies for splitting, the
+    # stale section files are removed and the destruction is surfaced.
+    big_md = tmp_path / "big.md"
+    chapter_body = "Lorem ipsum dolor sit amet. " * 500
+    text = "# Title\n\n" + "\n\n".join(
+        f"## Section {i}\n\n{chapter_body}" for i in range(5)
+    )
+    big_md.write_text(text, encoding="utf-8")
+
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    first = shelf.add_document(big_md, category="big", title="Doc", split=True)
+    split_dir = first.document_path.parent / first.document_path.stem
+    assert split_dir.is_dir()
+
+    small = tmp_path / "small.md"
+    small.write_text("# Title\n\ntiny body\n", encoding="utf-8")
+    second = shelf.add_document(
+        small, category="big", title="Doc", split=False, overwrite=True
+    )
+    assert second.unsplit  # the stale split was wiped, and it's signaled
+    assert not split_dir.exists()
+
+
+def test_doctor_flags_colliding_category_dirs(tmp_path: Path):
+    # #49: two literal category directories that slugify to the same slug are
+    # invisible to the per-category rules but flagged by colliding-category-dirs.
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    docs = shelf.root / "docs"
+    (docs / "Research Papers").mkdir(parents=True)
+    (docs / "research-papers").mkdir(parents=True)
+    (docs / "Research Papers" / "a.md").write_text("# A\n\nbody\n", encoding="utf-8")
+    (docs / "research-papers" / "b.md").write_text("# B\n\nbody\n", encoding="utf-8")
+
+    findings = shelf.doctor()
+    colliding = [f for f in findings if f.rule == "colliding-category-dirs"]
+    assert len(colliding) == 1
+    assert "research-papers" in colliding[0].detail
+    # A shelf with distinct slugs raises no such finding.
+    shelf2 = Shelf(tmp_path / "s2").init(name="S2")
+    shelf2.add_document(FIXTURE, category="papers", title="P", split=False)
+    assert not [
+        f for f in shelf2.doctor() if f.rule == "colliding-category-dirs"
+    ]

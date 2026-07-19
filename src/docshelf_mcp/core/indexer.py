@@ -322,11 +322,20 @@ def _title_from_filename(stem: str) -> str:
 
 
 def _pretty_section(section_relpath: str) -> str:
-    """``docs/foo/bar/003-power-supplies.md`` → ``Power supplies``."""
+    """``docs/foo/bar/003-power-supplies.md`` → ``Power supplies``.
+
+    A Roman-numeral-only stem (``ii``, ``vii``, ``xiv``) is upper-cased rather
+    than title-cased, so ``str.capitalize`` doesn't mangle it into ``Ii`` /
+    ``Vii`` / ``Xiv`` (#54).
+    """
     stem = Path(section_relpath).stem
     stem = re.sub(r"^\d+-", "", stem)
     text = stem.replace("-", " ").replace("_", " ").strip()
-    return text.capitalize() if text else stem
+    if not text:
+        return stem
+    if re.fullmatch(r"[ivxlcdm]+", text, re.IGNORECASE):
+        return text.upper()
+    return text.capitalize()
 
 
 def _subindex_relpath(entry: DocumentEntry) -> str:

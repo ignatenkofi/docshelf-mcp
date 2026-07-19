@@ -375,3 +375,26 @@ def test_write_subindexes_and_scan_exclusion(tmp_path: Path):
     # And regeneration is idempotent.
     write_subindexes(tmp_path, entries2, remote="https://github.com/me/r")
     assert written[0].read_text(encoding="utf-8") == text
+
+
+def test_subindex_labels_roman_numeral_sections(tmp_path: Path):
+    # Roman-numeral-only section stems must render as II/VII/XIV, not the
+    # str.capitalize() mangle Ii/Vii/Xiv (#54). Ordinary words still title-case.
+    docs = tmp_path / "docs" / "papers"
+    split_dir = docs / "treatise"
+    split_dir.mkdir(parents=True)
+    (docs / "treatise.md").write_text("# big doc", encoding="utf-8")
+    (split_dir / "001-i.md").write_text("## I", encoding="utf-8")
+    (split_dir / "002-ii.md").write_text("## II", encoding="utf-8")
+    (split_dir / "003-vii.md").write_text("## VII", encoding="utf-8")
+    (split_dir / "004-xiv.md").write_text("## XIV", encoding="utf-8")
+    (split_dir / "005-power-supplies.md").write_text("## Power", encoding="utf-8")
+
+    entries = scan_shelf(tmp_path)
+    text = build_subindex(entries[0], remote="https://github.com/me/r")
+
+    assert "[I]" in text and "[II]" in text
+    assert "[VII]" in text and "[XIV]" in text
+    assert "[Ii]" not in text and "[Vii]" not in text and "[Xiv]" not in text
+    # A non-Roman multi-word stem is unaffected.
+    assert "[Power supplies]" in text

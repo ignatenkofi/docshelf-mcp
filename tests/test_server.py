@@ -687,3 +687,45 @@ def test_init_input_accepts_custom_with_template(tmp_path: Path):
         url_template="https://cdn.example/{path}",
     )
     assert params.provider == "custom"
+
+
+def test_search_corpus_cache_survives_across_mcp_calls(tmp_path: Path, monkeypatch):
+    # #50: every MCP tool call builds a fresh Shelf via _resolve_shelf, so the
+    # corpus cache must live process-wide (not per instance) to survive between
+    # docshelf_search wrapper calls — otherwise a repeat search re-reads every
+    # Markdown file from disk.
+    shelf_path = str(tmp_path / "s")
+    t.init_shelf(
+        t.InitShelfInput(
+            shelf_path=shelf_path,
+            name="T",
+            github_remote="https://github.com/me/r",
+            default_categories=["docs"],
+        )
+    )
+    t.add_document(
+        t.AddDocumentInput(
+            source_path=str(FIXTURE),
+            category="docs",
+            title="Sample",
+            split=False,
+            shelf_path=shelf_path,
+        )
+    )
+
+    calls = {"n": 0}
+    orig = Path.read_text
+
+    def counting(self, *args, **kwargs):
+        if self.suffix == ".md" and "docs" in self.parts:
+            calls["n"] += 1
+        return orig(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", counting)
+
+    t.search(t.SearchInput(query="BGP", max_results=5, shelf_path=shelf_path))
+    first = calls["n"]
+    assert first >= 1  # the first wrapper call reads from disk
+    t.search(t.SearchInput(query="BGP", max_results=5, shelf_path=shelf_path))
+    # A brand-new Shelf was built for the second call, yet no file is re-read.
+    assert calls["n"] == first

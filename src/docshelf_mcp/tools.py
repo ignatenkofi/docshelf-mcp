@@ -429,6 +429,7 @@ def add_document(params: AddDocumentInput) -> dict:
         "section_count": len(result.section_paths),
         "converted_from_pdf": result.converted_from_pdf,
         "overwritten": result.overwritten,
+        "unsplit": result.unsplit,
         "warning_count": len(result.warnings),
         "warnings": [_warning_dict(w) for w in result.warnings],
         "index_path": "INDEX.md",
