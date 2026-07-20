@@ -146,7 +146,7 @@ Restart Claude Desktop. You now have eleven new tools available:
 |---|---|
 | `docshelf_init_shelf` | Bootstrap a new shelf directory. |
 | `docshelf_add_document` | Add a file (MD/PDF/DOCX/HTML/EPUB). Converts, splits, re-indexes. |
-| `docshelf_add_directory` | Add every PDF/MD in a folder in one call. Re-indexes once. |
+| `docshelf_add_directory` | Add every supported file (MD/PDF/DOCX/HTML/EPUB) in a folder in one call. Re-indexes once. |
 | `docshelf_read_document` | Read a document/section's content over MCP (works on private shelves). |
 | `docshelf_remove_document` | Remove a document, its sections, and metadata. Re-indexes. |
 | `docshelf_rename_document` | Retitle / recategorize a document (moves file, sections, meta) — no re-conversion. |
@@ -155,6 +155,8 @@ Restart Claude Desktop. You now have eleven new tools available:
 | `docshelf_search` | Plain-text search across the shelf, with raw URLs. |
 | `docshelf_list_documents` | List documents by category. |
 | `docshelf_convert_pdf` | Standalone PDF → Markdown (no shelf). |
+
+The shelf files are **also** exposed as read-only MCP resources, so a client can browse and attach them natively — see [MCP Resources](#mcp-resources) below.
 
 ### 2. Add to Claude Code
 
@@ -170,6 +172,19 @@ claude mcp add docshelf --env DOCSHELF_ROOT=/path/to/shelf -- docshelf-mcp
 # Sanity check — should print the server version then wait on stdin
 docshelf-mcp
 ```
+
+---
+
+## MCP Resources
+
+Alongside the tools, every shelf file is exposed as a **read-only MCP resource**, so an MCP client (Claude Desktop, Claude Code, …) can browse and attach shelf content natively — no tool call required.
+
+- **Scheme:** `docshelf:///<relative-path>`, e.g. `docshelf:///INDEX.md` or `docshelf:///docs/routers/mikrotik/003-firewall.md`.
+- **What's exposed:** `INDEX.md` plus every document and every split section under `docs/` — one resource each. A split document exposes both its whole-file parent and its individual section files.
+- **Size cap:** a resource read is capped at **1 MB** (1,000,000 bytes). A larger file is truncated at a UTF-8 character boundary and ends with a notice pointing at the `docshelf_read_document` tool, which pages the rest.
+- **Freshness:** content is read from disk on every access, and the resource *set* is re-synced when the server starts and after each mutating tool call (`add_document`, `add_directory`, `remove_document`, `rename_document`, `rebuild_index`, `init_shelf`) — so newly added files appear and removed ones drop out. Reads are confined to the shelf root.
+
+Resources are only registered for an initialized shelf (one that has a `.docshelf.json`); a non-shelf `DOCSHELF_ROOT` simply exposes none.
 
 ---
 

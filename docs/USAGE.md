@@ -61,13 +61,13 @@ The response includes `document_path`, `section_paths`, and `next_steps` (the su
 
 ### `docshelf_add_directory`
 
-Onboard a whole folder in one call. Scans `source_dir` (non-recursively) for `patterns` (PDFs and Markdown by default), adds each file under `category` with a title derived from its filename, and rebuilds `INDEX.md` **once** for the whole batch.
+Onboard a whole folder in one call. Scans `source_dir` (non-recursively) for `patterns` — **every supported input type by default** (Markdown, PDF, DOCX, HTML, EPUB; the globs are derived from the same `SUPPORTED_INPUT_SUFFIXES` the converter dispatches on) — adds each file under `category` with a title derived from its filename, and rebuilds `INDEX.md` **once** for the whole batch. Pass your own `patterns` to narrow the set (e.g. `["*.pdf"]` for PDFs only).
 
 ```jsonc
 {
   "source_dir": "/Users/me/Downloads/manuals",
   "category": "routers",
-  "patterns": ["*.pdf", "*.md"],
+  "patterns": ["*.md", "*.markdown", "*.pdf", "*.docx", "*.html", "*.htm", "*.epub"],
   "split": true,
   "quality": "fast"
 }
@@ -158,6 +158,17 @@ Standalone PDF → Markdown. Doesn't touch any shelf; useful for one-off convers
   "split": false
 }
 ```
+
+## MCP Resources
+
+Besides the tools above, the server publishes every shelf file as a **read-only MCP resource**. Clients that understand MCP resources (Claude Desktop, Claude Code, …) can list, browse, and attach them the same way they attach any other resource — no tool call in the loop.
+
+- **URI scheme:** `docshelf:///<relative-path>` — for example `docshelf:///INDEX.md` and `docshelf:///docs/routers/mikrotik/003-firewall.md`. The path is exactly the shelf-relative path `search` / `list_documents` return.
+- **What's exposed:** `INDEX.md` plus every document and every split section under `docs/`, one resource per file (mime type `text/markdown`). A split document lists both its whole-file parent and its section files, so a client can attach the whole chapter or a single section.
+- **1 MB cap:** each read is capped at 1,000,000 bytes. An oversized file comes back truncated at a UTF-8 character boundary with a trailing `[docshelf: truncated …]` notice that points at `docshelf_read_document`; use that tool's `offset` / `next_offset` paging to read the remainder.
+- **Re-sync trigger:** the resource set is (re)registered on server start and again after every **mutating** tool call — `init_shelf`, `add_document`, `add_directory`, `remove_document`, `rename_document`, `rebuild_index` — so it always reflects the current shelf. Content itself is read fresh from disk on each access, and reads that would escape the shelf root are refused.
+
+Only an initialized shelf (one with a `.docshelf.json`) registers resources; pointing `DOCSHELF_ROOT` at a plain directory exposes none. This is the resource-native counterpart to `docshelf_read_document`: the tool is imperative ("read this path"), the resources are declarative (the client sees the whole shelf and picks).
 
 ## Python library
 

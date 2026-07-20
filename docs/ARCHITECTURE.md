@@ -42,7 +42,7 @@
 | `core.indexer` | Walks the on-disk shelf, builds `INDEX.md`. Renders raw GitHub URLs when a remote is configured. |
 | `core.shelf` | High-level facade (`Shelf` class). Coordinates the four modules above and persists shelf metadata. |
 | `tools` | Pydantic input models + thin wrappers around `Shelf`. Returns plain dicts. |
-| `server` | FastMCP server. Each `@mcp.tool` is a thin wrapper around `tools.py` that JSON-serialises the result. |
+| `server` | FastMCP server. Each `@mcp.tool` is a thin wrapper around `tools.py` that JSON-serialises the result. Also registers every shelf file as a read-only `docshelf:///` MCP resource. |
 | `config` | Resolves `DOCSHELF_ROOT` env var → shelf root path. |
 
 ## Design choices
@@ -79,6 +79,16 @@ The README + `add_document`'s response include the suggested git command, so the
 ### Why FastMCP + Pydantic?
 
 FastMCP auto-generates input schemas from Pydantic models — that's the modern MCP Python idiom and minimises the gap between "Python function" and "MCP tool". Tool implementations live in `tools.py` so they're testable without an MCP runtime.
+
+### Why expose shelf files as MCP resources (not only tools)?
+
+Tools are imperative — the model has to *decide* to call `docshelf_read_document` with a path. MCP **resources** are declarative: the client sees the shelf's files up front and can browse or attach them like any other resource, which is the natural fit for "here is a collection, pick what you need". So `server.register_shelf_resources` publishes `INDEX.md` and every document / split section under `docs/` as read-only `docshelf:///<relative-path>` resources.
+
+Design constraints, all handled in `server._read_shelf_file` / `register_shelf_resources`:
+
+- **Freshness over caching.** The resource *set* is re-synced on server start and after every mutating tool call, and each read pulls fresh bytes from disk — the shelf is the source of truth, exactly as with `INDEX.md`.
+- **Bounded payload.** Reads are capped at 1 MB and snapped to a UTF-8 character boundary (the same fix `read_document` got), with a truncation notice pointing back at the paging tool — a giant datasheet can't blow up a context window.
+- **Confined + read-only.** A resource can only read inside the shelf root, and resources never mutate; all writes still go through the tools.
 
 ## Extension points
 

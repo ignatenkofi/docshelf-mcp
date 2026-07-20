@@ -229,10 +229,11 @@ def add_document(params: t.AddDocumentInput) -> str:
 def add_directory(params: t.AddDirectoryInput) -> str:
     """Add every matching file in a directory, rebuilding INDEX.md once.
 
-    Scans ``source_dir`` (non-recursively) for ``patterns`` (PDFs and
-    Markdown by default), adds each under ``category`` with a title derived
-    from its filename, and regenerates INDEX.md a single time. A corrupt or
-    unreadable file is reported in ``failed`` without aborting the batch.
+    Scans ``source_dir`` (non-recursively) for ``patterns`` — every supported
+    input type by default (Markdown, PDF, DOCX, HTML, EPUB) — adds each under
+    ``category`` with a title derived from its filename, and regenerates
+    INDEX.md a single time. A corrupt or unreadable file is reported in
+    ``failed`` without aborting the batch.
     """
     try:
         payload = t.add_directory(params)

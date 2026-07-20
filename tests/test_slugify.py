@@ -20,10 +20,13 @@ def test_basic_slugify(input_text, expected):
     assert slugify(input_text) == expected
 
 
-def test_empty_input_returns_default():
-    assert slugify("") == "section"
-    assert slugify("   ") == "section"
-    assert slugify("!!!") == "section"
+def test_unsluggable_input_returns_empty_string():
+    # Empty / whitespace-only / punctuation-only input slugifies to nothing;
+    # slugify returns "" so each call site can apply its own meaningful fallback
+    # (e.g. `slugify(title) or "document"`) instead of a generic "section" stem.
+    assert slugify("") == ""
+    assert slugify("   ") == ""
+    assert slugify("!!!") == ""
 
 
 def test_max_length_is_respected():

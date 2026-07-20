@@ -25,6 +25,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   same defect #30 fixed for `read_document`) and append a truncation notice,
   so an oversized file no longer ends in U+FFFD mid-character with no hint
   that more exists. (#68)
+- `slugify()` now returns `""` (not the literal `"section"`) for unsluggable
+  input, so the intended `or "uncategorized"` / `or "document"` fallbacks at
+  its call sites actually fire — an unsluggable title lands on `document.md`
+  instead of `section.md`. Previously-unguarded call sites (`rename_document`,
+  the section splitter) grew explicit fallbacks so an empty slug can't produce
+  a broken path. (#53)
+
+### Changed
+- `add_directory` (tool + `Shelf.add_directory`) now defaults to matching
+  **every** supported input type — Markdown, PDF, DOCX, HTML, EPUB — instead
+  of just `*.pdf` / `*.md`, so batch-importing a folder of `.docx` / `.epub`
+  no longer silently ingests nothing. The default is derived from
+  `converter.SUPPORTED_INPUT_SUFFIXES`, so it can't drift. (#52)
+
+### Documentation
+- Documented the read-only `docshelf:///` **MCP resources** feature (added in
+  #35) across the README, `docs/USAGE.md`, and `docs/ARCHITECTURE.md`: the URI
+  scheme, what's exposed (INDEX.md + every document / split section), the 1 MB
+  cap, and the on-start / after-mutation re-sync trigger. (#51)
 
 ### Added
 - `docshelf_rename_document` tool (+ `Shelf.rename_document`) — retitle,

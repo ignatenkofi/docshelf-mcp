@@ -24,6 +24,7 @@ __all__ = [
     "Quality",
     "ConversionError",
     "SUPPORTED_INPUT_SUFFIXES",
+    "SUPPORTED_INPUT_GLOBS",
 ]
 
 Quality = Literal["fast", "high"]
@@ -39,6 +40,11 @@ SUPPORTED_INPUT_SUFFIXES = (
     ".htm",
     ".epub",
 )
+
+#: Glob patterns matching :data:`SUPPORTED_INPUT_SUFFIXES`, one per suffix. The
+#: default include set for directory scans (e.g. :meth:`Shelf.add_directory`),
+#: derived here so it can never drift behind the suffixes it mirrors.
+SUPPORTED_INPUT_GLOBS = tuple(f"*{suffix}" for suffix in SUPPORTED_INPUT_SUFFIXES)
 
 
 class ConversionError(RuntimeError):
