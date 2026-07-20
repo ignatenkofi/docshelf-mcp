@@ -9,6 +9,8 @@ from pathlib import Path
 import pytest
 
 from docshelf_mcp.core.converter import (
+    SUPPORTED_INPUT_GLOBS,
+    SUPPORTED_INPUT_SUFFIXES,
     ConversionError,
     source_to_markdown,
 )
@@ -18,6 +20,13 @@ def test_markdown_passthrough(tmp_path: Path):
     src = tmp_path / "a.md"
     src.write_text("# Title\n\nbody\n", encoding="utf-8")
     assert source_to_markdown(src) == "# Title\n\nbody\n"
+
+
+def test_input_globs_track_suffixes():
+    # The directory-scan default (Shelf.add_directory) is derived from the
+    # suffixes the converter dispatches on, so the two can never drift (#52).
+    assert SUPPORTED_INPUT_GLOBS == tuple(f"*{s}" for s in SUPPORTED_INPUT_SUFFIXES)
+    assert "*.docx" in SUPPORTED_INPUT_GLOBS and "*.epub" in SUPPORTED_INPUT_GLOBS
 
 
 def test_unsupported_suffix_lists_supported_and_extra(tmp_path: Path):

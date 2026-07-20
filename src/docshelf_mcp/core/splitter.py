@@ -245,7 +245,9 @@ def write_split_files(
     written: list[Path] = []
     used_slugs: set[str] = set()
     for idx, (title, body) in enumerate(sections, start=1):
-        slug = slugify(title)
+        # slugify() returns "" for an unsluggable heading; fall back to
+        # "section" so the filename stays "NNN-section.md" rather than "NNN-.md".
+        slug = slugify(title) or "section"
         if slug in used_slugs:
             slug = f"{slug}-{idx:03d}"
         used_slugs.add(slug)
@@ -274,7 +276,8 @@ def _expected_split_names(sections: list[tuple[str, str]]) -> list[str]:
     names: list[str] = []
     used_slugs: set[str] = set()
     for idx, (title, _body) in enumerate(sections, start=1):
-        slug = slugify(title)
+        # Mirror write_split_files' "section" fallback for empty slugs.
+        slug = slugify(title) or "section"
         if slug in used_slugs:
             slug = f"{slug}-{idx:03d}"
         used_slugs.add(slug)

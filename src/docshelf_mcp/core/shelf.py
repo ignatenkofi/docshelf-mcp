@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Literal
 
 from docshelf_mcp.core.converter import (
+    SUPPORTED_INPUT_GLOBS,
     SUPPORTED_INPUT_SUFFIXES,
     Quality,
     source_to_markdown,
@@ -521,7 +522,7 @@ class Shelf:
         source_dir: Path | str,
         *,
         category: str,
-        pattern: Iterable[str] = ("*.pdf", "*.md"),
+        pattern: Iterable[str] = SUPPORTED_INPUT_GLOBS,
         split: bool = True,
         quality: Quality = "fast",
     ) -> list[dict]:
@@ -535,7 +536,9 @@ class Shelf:
         Args:
             source_dir: Directory to scan (non-recursive).
             category: Category bucket for every file. Created if missing.
-            pattern: Glob patterns to include. Defaults to PDFs and Markdown.
+            pattern: Glob patterns to include. Defaults to every supported
+                input type (Markdown, PDF, DOCX, HTML, EPUB — the globs for
+                :data:`~docshelf_mcp.core.converter.SUPPORTED_INPUT_SUFFIXES`).
             split: Passed through to :meth:`add_document`.
             quality: PDF conversion quality preset.
 
@@ -764,7 +767,11 @@ class Shelf:
             else category_slug
         )
         new_cat_dir = self.root / "docs" / new_cat_slug
-        new_stem = slugify(new_title, max_len=80) if new_title is not None else doc_path.stem
+        new_stem = (
+            (slugify(new_title, max_len=80) or "document")
+            if new_title is not None
+            else doc_path.stem
+        )
         new_doc_path = new_cat_dir / f"{new_stem}.md"
 
         moved = new_doc_path != doc_path

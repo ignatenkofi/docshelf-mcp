@@ -18,7 +18,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from docshelf_mcp.config import default_shelf_root
-from docshelf_mcp.core.converter import Quality, pdf_to_markdown
+from docshelf_mcp.core.converter import SUPPORTED_INPUT_GLOBS, Quality, pdf_to_markdown
 from docshelf_mcp.core.shelf import SHELF_METADATA_FILENAME, Shelf
 from docshelf_mcp.core.splitter import (
     clean_markdown,
@@ -161,8 +161,9 @@ class AddDirectoryInput(_BaseInput):
         max_length=80,
     )
     patterns: list[str] = Field(
-        default_factory=lambda: ["*.pdf", "*.md"],
-        description="Glob patterns to include. Defaults to PDFs and Markdown.",
+        default_factory=lambda: list(SUPPORTED_INPUT_GLOBS),
+        description="Glob patterns to include. Defaults to every supported input "
+        "type (Markdown, PDF, DOCX, HTML, EPUB).",
         max_length=16,
     )
     split: bool = Field(

@@ -171,6 +171,26 @@ def test_add_directory_missing_dir_raises(tmp_path: Path):
         shelf.add_directory(tmp_path / "nope", category="docs")
 
 
+def test_add_directory_default_patterns_cover_all_formats(tmp_path: Path):
+    # #52: the default pattern set must cover every format the converter
+    # ingests (#16 added DOCX/HTML/EPUB), not just the old ("*.pdf", "*.md") —
+    # else a folder of .docx / .epub is silently matched by nothing.
+    src = tmp_path / "incoming"
+    src.mkdir()
+    (src / "note.md").write_text("# Note\n\nbody\n", encoding="utf-8")
+    (src / "chapter.markdown").write_text("# Chapter\n\nbody\n", encoding="utf-8")
+    # A .docx that isn't a real docx: conversion fails, but the point is that
+    # the default patterns *match* it (old defaults would skip it entirely).
+    (src / "brief.docx").write_bytes(b"not a real docx")
+
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    results = shelf.add_directory(src, category="docs")  # default patterns
+    matched = {r["file"] for r in results}
+    assert "note.md" in matched
+    assert "chapter.markdown" in matched  # missed by the old ("*.pdf", "*.md")
+    assert "brief.docx" in matched  # the #52 gap: matched even if it fails to convert
+
+
 def test_add_document_surfaces_section_warnings(tmp_path: Path):
     # A big doc with one clean chapter and one junk (unit-fragment) heading.
     filler = "Body sentence for padding purposes here. " * 700
@@ -264,10 +284,24 @@ def test_add_document_unsluggable_titles_dont_collide_silently(tmp_path: Path):
     b.write_text("# B\n\nSECOND\n", encoding="utf-8")
 
     shelf.add_document(a, category="c", title="!!!", split=False)
-    # An unsluggable title falls back to slugify's own "section" stem.
-    assert (shelf.root / "docs" / "c" / "section.md").is_file()
+    # slugify("!!!") is now "", so add_document's `or "document"` guard fires.
+    assert (shelf.root / "docs" / "c" / "document.md").is_file()
     with pytest.raises(DocumentExistsError):
         shelf.add_document(b, category="c", title="???", split=False)
+
+
+def test_rename_to_unsluggable_title_falls_back(tmp_path: Path):
+    # Renaming to a title that slugifies to nothing must land on "document.md",
+    # not a broken bare ".md" — the rename_document call site guards slugify's
+    # now-possible "" the same way add_document does.
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    src = tmp_path / "a.md"
+    src.write_text("# A\n\nbody\n", encoding="utf-8")
+    shelf.add_document(src, category="c", title="Real Title", split=False)
+
+    result = shelf.rename_document(category="c", document="Real Title", new_title="!!!")
+    assert result.new_path == "docs/c/document.md"
+    assert (shelf.root / "docs" / "c" / "document.md").is_file()
 
 
 def test_add_document_collision_does_not_convert_source(tmp_path: Path, monkeypatch):
