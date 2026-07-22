@@ -1,15 +1,14 @@
 name: security
-# Файл-адаптер DevSecOps-конвейера (ignatenkofi/devsecops-pipeline).
-# Весь состав стадий и fail-политика — в профиле класса на стороне
-# конвейера; здесь только триггеры и класс репо.
+# Файл-адаптер публичного DevSecOps-конвейера
+# (ignatenkofi/devsecops-pipeline-public). Публичный репо → публичный
+# reusable workflow (public→public). Состав стадий и fail-политика — в
+# профиле класса на стороне конвейера.
 on:
   pull_request:
   push:
     branches: [main]
 jobs:
   pipeline:
-    uses: ignatenkofi/devsecops-pipeline/.github/workflows/pipeline.yml@v1
+    uses: ignatenkofi/devsecops-pipeline-public/.github/workflows/pipeline-light.yml@v1
     with:
       repo-class: library
-    secrets: inherit
-# ci-nudge: перезапуск security после включения Actions Access (devsecops-pipeline#2)
