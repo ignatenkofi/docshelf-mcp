@@ -12,3 +12,4 @@ jobs:
     with:
       repo-class: library
     secrets: inherit
+# ci-nudge: перезапуск security после включения Actions Access (devsecops-pipeline#2)
