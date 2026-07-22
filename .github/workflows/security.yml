@@ -1,0 +1,14 @@
+name: security
+# Файл-адаптер DevSecOps-конвейера (ignatenkofi/devsecops-pipeline).
+# Весь состав стадий и fail-политика — в профиле класса на стороне
+# конвейера; здесь только триггеры и класс репо.
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  pipeline:
+    uses: ignatenkofi/devsecops-pipeline/.github/workflows/pipeline.yml@v1
+    with:
+      repo-class: library
+    secrets: inherit
