@@ -379,6 +379,7 @@ class Shelf:
         *,
         category: str,
         title: str,
+        slug: str | None = None,
         description: str = "",
         split: bool = True,
         quality: Quality = "fast",
@@ -391,6 +392,12 @@ class Shelf:
             source: Path to a ``.pdf`` or ``.md`` file.
             category: Category bucket (e.g. ``"laptops"``). Created if missing.
             title: Human-readable title — used in the INDEX entry.
+            slug: Optional filename stem. When given, the document is written to
+                ``docs/<category>/<slug>.md`` (the slug is itself slugified for
+                filesystem safety) while ``title`` still drives the INDEX entry
+                and heading untouched — so a non-latin title can live at a latin,
+                date-prefixed path. A ``None`` or blank slug falls back to the
+                title-derived filename (the default behavior).
             description: Short description (one sentence). Empty by default.
             split: If True (default) and the document is large enough, split it
                 by H2 into a sibling subdirectory.
@@ -429,7 +436,15 @@ class Shelf:
         category_dir = self.root / "docs" / category_slug
         category_dir.mkdir(parents=True, exist_ok=True)
 
-        doc_stem = slugify(title, max_len=80) or "document"
+        # An explicit slug (#75) decouples the on-disk filename from the display
+        # title: `title` still drives the INDEX entry and the prepended heading,
+        # while `slug` — slugified for filesystem safety — names the file, so a
+        # Cyrillic title can live at a latin, date-prefixed path. A None or blank
+        # slug (or one that slugifies to nothing) falls back to the title-derived
+        # stem, keeping today's behavior exactly.
+        doc_stem = slugify(slug, max_len=80) if slug is not None else ""
+        if not doc_stem:
+            doc_stem = slugify(title, max_len=80) or "document"
         doc_path = category_dir / f"{doc_stem}.md"
 
         # Collision guard: if the target path is already held by a *different*

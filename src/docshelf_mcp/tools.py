@@ -112,8 +112,18 @@ class AddDocumentInput(_BaseInput):
     title: str = Field(
         ...,
         description="Human-readable document title. Used as the INDEX entry and "
-        "(slugified) as the filename.",
+        "(slugified) as the filename unless 'slug' is given.",
         min_length=1,
+        max_length=200,
+    )
+    slug: str | None = Field(
+        default=None,
+        description="Optional filename stem, decoupling the on-disk file from the "
+        "display title. When set, the document is written to "
+        "docs/<category>/<slug>.md (the slug is slugified for filesystem safety) "
+        "while 'title' stays the INDEX/heading text untouched — e.g. a Cyrillic "
+        "title at a latin, date-prefixed path like '2026-07-22-m1-build-sprint'. "
+        "Defaults to deriving the filename from the title.",
         max_length=200,
     )
     description: str = Field(
@@ -413,6 +423,7 @@ def add_document(params: AddDocumentInput) -> dict:
         params.source_path,
         category=params.category,
         title=params.title,
+        slug=params.slug,
         description=params.description,
         split=params.split,
         quality=params.quality,

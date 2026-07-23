@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `add_document` (tool + `Shelf.add_document`) gained an optional `slug`
+  parameter that decouples the on-disk filename from the display title: when
+  set, the document is written to `docs/<category>/<slug>.md` (the slug is
+  slugified for filesystem safety) while `title` stays the INDEX/heading text
+  untouched — so a Cyrillic title can live at a latin, date-prefixed path in one
+  call, with no `.meta.json` hand-off. A `None`/blank slug keeps today's
+  title-derived filename exactly. (#75)
+
 ### Fixed
 - A shape-invalid `.meta.json` (valid JSON, wrong shape — e.g. a bare-string
   entry or a list top level) no longer crashes `scan_shelf` and every tool on

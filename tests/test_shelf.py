@@ -60,6 +60,53 @@ def test_add_markdown_document(tmp_path: Path):
     assert "raw.githubusercontent.com" in idx
 
 
+def test_add_document_with_slug_decouples_filename_from_title(tmp_path: Path):
+    # #75 acceptance: a latin, date-prefixed slug names the file while a
+    # Cyrillic display title lands in INDEX/meta untouched — one call, no
+    # .meta.json hand-off.
+    shelf = Shelf(tmp_path / "s").init(
+        name="S", remote="https://github.com/me/r", default_categories=["sessions"]
+    )
+    result = shelf.add_document(
+        FIXTURE,
+        category="sessions",
+        slug="2026-07-22-m1-build-sprint",
+        title="Сессия: M1 собран за день",
+        split=False,
+    )
+
+    expected = shelf.root / "docs" / "sessions" / "2026-07-22-m1-build-sprint.md"
+    assert result.document_path == expected
+    assert expected.is_file()
+
+    # The display title (not the slug) is the INDEX entry text; the slug still
+    # appears there as the file's link target, which is expected.
+    idx = (shelf.root / "INDEX.md").read_text()
+    assert "Сессия: M1 собран за день" in idx
+    assert "docs/sessions/2026-07-22-m1-build-sprint.md" in idx
+
+    # .meta.json keys the slug filename and stores the Cyrillic title verbatim.
+    meta = json.loads(
+        (shelf.root / "docs" / "sessions" / ".meta.json").read_text(encoding="utf-8")
+    )
+    assert meta["2026-07-22-m1-build-sprint.md"]["title"] == "Сессия: M1 собран за день"
+
+
+def test_add_document_blank_slug_falls_back_to_title(tmp_path: Path):
+    # A None/blank slug preserves today's title-derived filename exactly.
+    shelf = Shelf(tmp_path / "s").init(name="S", default_categories=["docs"])
+    from_none = shelf.add_document(
+        FIXTURE, category="docs", title="Plain Title", split=False
+    )
+    assert from_none.document_path.name == "plain-title.md"
+
+    from_blank = shelf.add_document(
+        FIXTURE, category="docs", title="Plain Title", slug="   ", split=False
+    )
+    # Blank slug slugifies to nothing → same title-derived path (in-place update).
+    assert from_blank.document_path == from_none.document_path
+
+
 def test_add_document_with_split(tmp_path: Path):
     # Build a synthetic 'big' MD that crosses the 50 KB threshold.
     big_md = tmp_path / "big.md"
