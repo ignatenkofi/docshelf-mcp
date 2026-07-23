@@ -80,8 +80,9 @@ def test_add_document_with_slug_decouples_filename_from_title(tmp_path: Path):
     assert expected.is_file()
 
     # The display title (not the slug) is the INDEX entry text; the slug still
-    # appears there as the file's link target, which is expected.
-    idx = (shelf.root / "INDEX.md").read_text()
+    # appears there as the file's link target, which is expected. Read as UTF-8
+    # explicitly — the Cyrillic title would blow up on a cp1252 default (Windows).
+    idx = (shelf.root / "INDEX.md").read_text(encoding="utf-8")
     assert "Сессия: M1 собран за день" in idx
     assert "docs/sessions/2026-07-22-m1-build-sprint.md" in idx
 
