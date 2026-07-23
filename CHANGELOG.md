@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **shelf-spec v0 recognition** (docshelf-mcp is the spec's reference
+  implementation, ADR-0005): `init_shelf` / `Shelf.init` gained an opt-in
+  `manifest` flag that scaffolds a `shelf.yml` (the spec contract:
+  `spec_version "0.1"`, `mode: single`, `profile: document`,
+  `index.generated_by: docshelf-mcp`) next to `.docshelf.json`, and `doctor`
+  gained a warning-level `docshelf-config-conflict` rule that flags a
+  `shelf.yml` / `.docshelf.json` disagreement on an overlapping field
+  (`name`, or `categories` vs `category_order`). Conservative and
+  non-breaking: the manifest is off by default, never overwrites a hand-edited
+  one, leaves categories implicit, and a shelf **without** a `shelf.yml` stays
+  valid — the conflict rule simply stays silent. Mirrors openshelf's validator
+  rule of the same name so both tools describe the drift identically. Adds a
+  `pyyaml` runtime dependency. (#63)
 - `add_document` (tool + `Shelf.add_document`) gained an optional `slug`
   parameter that decouples the on-disk filename from the display title: when
   set, the document is written to `docs/<category>/<slug>.md` (the slug is

@@ -398,6 +398,13 @@ class InitShelfInput(_BaseInput):
         "{branch}, {path} placeholders. Covers S3, R2, or any static host.",
         max_length=500,
     )
+    manifest: bool = Field(
+        default=False,
+        description="Also scaffold a shelf.yml manifest (shelf-spec v0: "
+        "spec_version 0.1, mode single, profile document) next to .docshelf.json, "
+        "making the shelf conformant to openshelf's shelf-spec. Off by default; a "
+        "shelf without one stays valid. Never overwrites an existing manifest.",
+    )
 
     @model_validator(mode="after")
     def _custom_needs_template(self) -> InitShelfInput:
@@ -724,6 +731,7 @@ def init_shelf(params: InitShelfInput) -> dict:
         default_categories=params.default_categories,
         provider=params.provider,
         url_template=params.url_template,
+        manifest=params.manifest,
     )
     return {
         "status": "ok",
@@ -733,6 +741,7 @@ def init_shelf(params: InitShelfInput) -> dict:
         "branch": shelf.config.branch,
         "provider": shelf.config.provider,
         "categories": params.default_categories,
+        "manifest": params.manifest,
         "next_steps": (
             "1. cd into the shelf and `git init && git remote add origin <url>` if not done yet.\n"
             "2. Use `add_document` to add your first PDF or Markdown file.\n"

@@ -36,11 +36,14 @@ Bootstrap a new shelf directory. Idempotent — safe to call against an existing
   "name": "My Documentation",
   "github_remote": "https://github.com/me/my-docs",
   "branch": "main",
-  "default_categories": ["guides", "specs", "tutorials"]
+  "default_categories": ["guides", "specs", "tutorials"],
+  "manifest": false  // true also scaffolds a shelf.yml (shelf-spec v0 manifest)
 }
 ```
 
 After running this, the directory contains `.docshelf.json`, `INDEX.md`, `.gitignore`, and `docs/{guides,specs,tutorials}/`.
+
+Set `"manifest": true` to also write a **`shelf.yml`** — the [openshelf shelf-spec v0](https://github.com/ignatenkofi/openshelf) manifest (`spec_version "0.1"`, `mode: single`, `profile: document`, `index.generated_by: docshelf-mcp`) — next to `.docshelf.json`, making the shelf conformant to the spec. It's off by default, never overwrites an existing `shelf.yml`, and leaves categories implicit; a shelf without one stays valid. Once a manifest exists, `doctor` reconciles it against `.docshelf.json` (see `docshelf-config-conflict` below).
 
 ### `docshelf_add_document`
 
@@ -109,7 +112,9 @@ Check the shelf for drift and optionally apply the safe fixes. Read-only by defa
 }
 ```
 
-Reports `findings` (each with `rule`, `severity`, `path`, `detail`, `suggested_fix`, `fixed`) plus a `by_rule` summary. Rules: `stale-meta-entry`, `orphaned-split-dir`, `split-out-of-sync`, `stale-index`, `duplicate-title`, `empty-category`, `corrupt-meta`. Findings are sorted so runs diff cleanly. With `fix=true`, only the safe subset is applied; everything else stays report-only.
+Reports `findings` (each with `rule`, `severity`, `path`, `detail`, `suggested_fix`, `fixed`) plus a `by_rule` summary. Rules: `stale-meta-entry`, `orphaned-split-dir`, `split-out-of-sync`, `stale-index`, `duplicate-title`, `empty-category`, `corrupt-meta`, `meta-shape`, `colliding-category-dirs`, `unknown-provider`, `custom-without-template`, and `docshelf-config-conflict`. Findings are sorted so runs diff cleanly. With `fix=true`, only the safe subset is applied; everything else stays report-only.
+
+`docshelf-config-conflict` (warning) only fires when a [shelf-spec v0](https://github.com/ignatenkofi/openshelf) `shelf.yml` manifest is present next to `.docshelf.json` and the two disagree on an overlapping field — the manifest `name` vs the config `name`, or the manifest's explicit `categories` vs the config's `category_order`. The manifest is the contract; align `.docshelf.json` to it. A shelf without a `shelf.yml` is never flagged.
 
 ### `docshelf_search`
 

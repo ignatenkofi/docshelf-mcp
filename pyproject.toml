@@ -32,6 +32,9 @@ dependencies = [
     "mcp>=1.2.0",
     "pydantic>=2.6",
     "pymupdf4llm>=0.0.17",
+    # shelf.yml (shelf-spec v0 manifest) scaffolding + doctor's
+    # docshelf-config-conflict reconciliation read/write YAML (#63).
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]

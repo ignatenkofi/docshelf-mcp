@@ -31,6 +31,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Literal
 
+import yaml
+
 from docshelf_mcp.core.converter import (
     SUPPORTED_INPUT_GLOBS,
     SUPPORTED_INPUT_SUFFIXES,
@@ -98,6 +100,17 @@ class DocumentExistsError(Exception):
 
 
 SHELF_METADATA_FILENAME = ".docshelf.json"
+
+#: The shelf-spec v0 manifest (openshelf). docshelf-mcp is the reference
+#: implementation of the spec (ADR-0005): it can scaffold this file and, when
+#: one is present, reconciles it against ``.docshelf.json`` in
+#: :meth:`Shelf.doctor`. A shelf without a manifest stays valid here — the
+#: manifest requirement is openshelf's, not docshelf's (#63). See openshelf
+#: ``spec/SPEC.md`` §3.
+SHELF_MANIFEST_FILENAME = "shelf.yml"
+
+#: shelf-spec version this implementation targets (manifest ``spec_version``).
+SPEC_VERSION = "0.1"
 
 #: Extra weight per query-token occurrence found on a heading line, so a
 #: document whose title/chapter names the query ranks above body-only matches.
@@ -201,6 +214,77 @@ class ShelfConfig:
     def save(self, shelf_root: Path) -> None:
         meta_path = shelf_root / SHELF_METADATA_FILENAME
         atomic_write_text(meta_path, json.dumps(asdict(self), indent=2) + "\n")
+
+
+def _spec_manifest(name: str) -> dict:
+    """The shelf-spec v0 manifest docshelf-mcp scaffolds for a document shelf.
+
+    Minimal by design: the two REQUIRED fields (``spec_version``, ``mode``)
+    plus the document-profile identity docshelf-mcp actually is. ``categories``
+    is left **implicit** (the field is omitted) on purpose — docshelf-mcp
+    creates category directories on demand, so a declared list would go stale
+    the moment a new one is added and trip openshelf's ``category-undeclared``
+    rule. openshelf ``spec/SPEC.md`` §2.1, §3.
+    """
+    return {
+        "spec_version": SPEC_VERSION,
+        "mode": "single",
+        "name": name,
+        "profile": "document",
+        "docs_root": "docs",
+        "index": {"path": "INDEX.md", "generated_by": "docshelf-mcp"},
+    }
+
+
+def _read_spec_manifest(shelf_root: Path) -> dict | None:
+    """Load ``shelf.yml`` as a mapping, or ``None`` when it is absent,
+    unreadable, not valid YAML, or not a mapping.
+
+    docshelf-mcp treats the manifest as advisory: schema-validating it is
+    openshelf's job (its ``shelf_validate`` reports ``manifest-invalid``).
+    Here a manifest that can't be read simply gives the config-conflict check
+    nothing to compare against, so it stays silent rather than erroring.
+    """
+    manifest_path = shelf_root / SHELF_MANIFEST_FILENAME
+    if not manifest_path.is_file():
+        return None
+    try:
+        data = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, yaml.YAMLError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _manifest_config_conflicts(manifest: dict, config: ShelfConfig) -> list[str]:
+    """Overlapping-field disagreements between ``shelf.yml`` and ``.docshelf.json``.
+
+    Mirrors openshelf's validator rule ``docshelf-config-conflict`` (same
+    comparisons, same wording) so both tools describe the drift in one
+    language. Only the two documented overlaps are checked: the manifest
+    ``name`` vs the config ``name``, and the manifest ``categories`` (when
+    explicitly declared) vs the config ``category_order``. A ``category_order``
+    that names a category the manifest does not declare is the conflict — the
+    manifest's explicit list is the contract. openshelf ``spec/SPEC.md`` §3.1.
+    """
+    conflicts: list[str] = []
+    manifest_name = manifest.get("name")
+    if (
+        isinstance(manifest_name, str)
+        and manifest_name
+        and config.name
+        and manifest_name != config.name
+    ):
+        conflicts.append(
+            f"name: shelf.yml '{manifest_name}' vs .docshelf.json '{config.name}'"
+        )
+    declared = manifest.get("categories")
+    if isinstance(declared, list) and declared and config.category_order:
+        extra = sorted(set(config.category_order) - {str(c) for c in declared})
+        if extra:
+            conflicts.append(
+                "category_order lists undeclared categories: " + ", ".join(extra)
+            )
+    return conflicts
 
 
 @dataclass
@@ -315,10 +399,19 @@ class Shelf:
         default_categories: Iterable[str] | None = None,
         provider: str = "",
         url_template: str = "",
+        manifest: bool = False,
     ) -> Shelf:
         """Create the shelf directory layout if it doesn't already exist.
 
         Idempotent: existing files and directories are preserved.
+
+        When ``manifest=True``, also scaffold a ``shelf.yml`` — the shelf-spec
+        v0 manifest (``spec_version "0.1"``, ``mode: single``, ``profile:
+        document``) — next to ``.docshelf.json``, making the shelf conformant to
+        openshelf's spec (#63). Off by default and never overwrites an existing
+        manifest, so a shelf's default shape is unchanged; a shelf without one
+        stays valid here (the manifest requirement is openshelf's, not
+        docshelf's).
         """
         # Fail fast on a provider config that can only render a link-less
         # INDEX (#67); a hand-edited .docshelf.json is covered by doctor's
@@ -366,6 +459,22 @@ class Shelf:
                 "__pycache__/\n",
                 encoding="utf-8",
             )
+
+        # shelf.yml — the shelf-spec v0 manifest (#63). Opt-in and idempotent:
+        # only written when asked, and never clobbers a hand-edited one, so the
+        # default shape of a shelf is unchanged. Its name mirrors the resolved
+        # config name, so a freshly-scaffolded shelf carries no config-conflict.
+        if manifest:
+            manifest_path = self.root / SHELF_MANIFEST_FILENAME
+            if not manifest_path.exists():
+                atomic_write_text(
+                    manifest_path,
+                    yaml.safe_dump(
+                        _spec_manifest(config.name),
+                        sort_keys=False,
+                        allow_unicode=True,
+                    ),
+                )
 
         # Seed INDEX.md so a fresh shelf is browsable immediately.
         self.rebuild_index()
@@ -1184,6 +1293,23 @@ class Shelf:
                 "renders empty",
                 "set url_template with {owner}/{repo}/{branch}/{path} "
                 "placeholders"))
+
+        # docshelf-config-conflict: when a shelf.yml manifest (shelf-spec v0,
+        # #63) is present it is the contract — flag any overlapping field it
+        # disagrees with .docshelf.json on (name, categories/category_order).
+        # An absent manifest leaves nothing to reconcile, so a shelf without
+        # one is never flagged (the manifest requirement is openshelf's). This
+        # mirrors openshelf's validator rule of the same name so both tools
+        # describe the drift identically.
+        manifest = _read_spec_manifest(self.root)
+        if manifest is not None:
+            conflicts = _manifest_config_conflicts(manifest, self.config)
+            if conflicts:
+                findings.append(DoctorFinding(
+                    "docshelf-config-conflict", "warning", SHELF_METADATA_FILENAME,
+                    "; ".join(conflicts),
+                    "align .docshelf.json with shelf.yml — the manifest is the "
+                    "contract"))
 
         # stale-index: INDEX.md content differs from a fresh render.
         index_path = self.root / "INDEX.md"
