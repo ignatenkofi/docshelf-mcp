@@ -59,6 +59,8 @@ Add a PDF or Markdown file to the shelf.
 
 The response includes `document_path`, `section_paths`, and `next_steps` (the suggested git command). When a document is split, the response also carries `warnings` (+ `warning_count`) — heuristic flags for section headings that look like PDF-extraction artefacts (`toc-leak`, `unit-fragment`, `table-residue`, `near-duplicate`). These are detection only; nothing is rewritten. `rebuild_index` reports the same warnings across the whole shelf.
 
+Pass an optional `slug` to decouple the on-disk filename from the display title. By default the filename is the slugified `title`, so a non-latin title yields a non-latin filename. With `slug` set, the document is written to `docs/<category>/<slug>.md` (the slug is itself slugified for filesystem safety) while `title` stays the INDEX/heading text untouched — e.g. `"slug": "2026-07-22-m1-build-sprint"` with `"title": "Сессия: M1 собран за день"` lands a latin, date-prefixed file with the Cyrillic title in `INDEX.md`. A `null`/blank slug keeps the title-derived filename.
+
 ### `docshelf_add_directory`
 
 Onboard a whole folder in one call. Scans `source_dir` (non-recursively) for `patterns` — **every supported input type by default** (Markdown, PDF, DOCX, HTML, EPUB; the globs are derived from the same `SUPPORTED_INPUT_SUFFIXES` the converter dispatches on) — adds each file under `category` with a title derived from its filename, and rebuilds `INDEX.md` **once** for the whole batch. Pass your own `patterns` to narrow the set (e.g. `["*.pdf"]` for PDFs only).
