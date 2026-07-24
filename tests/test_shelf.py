@@ -5,8 +5,13 @@ import json
 from pathlib import Path
 
 import pytest
+import yaml
 
-from docshelf_mcp.core.shelf import Shelf
+from docshelf_mcp.core.shelf import (
+    SHELF_MANIFEST_FILENAME,
+    SHELF_METADATA_FILENAME,
+    Shelf,
+)
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sample.md"
 
@@ -58,6 +63,54 @@ def test_add_markdown_document(tmp_path: Path):
     idx = (shelf.root / "INDEX.md").read_text()
     assert "Sample Document" in idx
     assert "raw.githubusercontent.com" in idx
+
+
+def test_add_document_with_slug_decouples_filename_from_title(tmp_path: Path):
+    # #75 acceptance: a latin, date-prefixed slug names the file while a
+    # Cyrillic display title lands in INDEX/meta untouched — one call, no
+    # .meta.json hand-off.
+    shelf = Shelf(tmp_path / "s").init(
+        name="S", remote="https://github.com/me/r", default_categories=["sessions"]
+    )
+    result = shelf.add_document(
+        FIXTURE,
+        category="sessions",
+        slug="2026-07-22-m1-build-sprint",
+        title="Сессия: M1 собран за день",
+        split=False,
+    )
+
+    expected = shelf.root / "docs" / "sessions" / "2026-07-22-m1-build-sprint.md"
+    assert result.document_path == expected
+    assert expected.is_file()
+
+    # The display title (not the slug) is the INDEX entry text; the slug still
+    # appears there as the file's link target, which is expected. Read as UTF-8
+    # explicitly — the Cyrillic title would blow up on a cp1252 default (Windows).
+    idx = (shelf.root / "INDEX.md").read_text(encoding="utf-8")
+    assert "Сессия: M1 собран за день" in idx
+    assert "docs/sessions/2026-07-22-m1-build-sprint.md" in idx
+
+    # .meta.json keys the slug filename and stores the Cyrillic title verbatim.
+    meta = json.loads(
+        (shelf.root / "docs" / "sessions" / ".meta.json").read_text(encoding="utf-8")
+    )
+    assert meta["2026-07-22-m1-build-sprint.md"]["title"] == "Сессия: M1 собран за день"
+
+
+def test_add_document_blank_slug_falls_back_to_title(tmp_path: Path):
+    # A None/blank slug preserves today's title-derived filename exactly.
+    shelf = Shelf(tmp_path / "s").init(name="S", default_categories=["docs"])
+    from_none = shelf.add_document(
+        FIXTURE, category="docs", title="Plain Title", split=False
+    )
+    assert from_none.document_path.name == "plain-title.md"
+
+    from_blank = shelf.add_document(
+        FIXTURE, category="docs", title="Plain Title", slug="   ", split=False
+    )
+    # Blank slug slugifies to nothing → same title-derived path (in-place update).
+    assert from_blank.document_path == from_none.document_path
 
 
 def test_add_document_with_split(tmp_path: Path):
@@ -1042,8 +1095,6 @@ def test_init_accepts_custom_with_template(tmp_path: Path):
 
 
 def test_doctor_flags_hand_edited_provider_config(tmp_path: Path):
-    from docshelf_mcp.core.shelf import SHELF_METADATA_FILENAME
-
     shelf = Shelf(tmp_path / "s").init(name="S")
     cfg_path = shelf.root / SHELF_METADATA_FILENAME
     cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
@@ -1132,3 +1183,169 @@ def test_doctor_flags_colliding_category_dirs(tmp_path: Path):
     assert not [
         f for f in shelf2.doctor() if f.rule == "colliding-category-dirs"
     ]
+
+
+# -- issue #63: recognize shelf.yml as the shelf-spec v0 contract ------------
+
+
+def test_init_default_writes_no_manifest(tmp_path: Path):
+    # Non-breaking: the default init produces exactly today's layout — no
+    # shelf.yml unless it is explicitly requested.
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    assert not (shelf.root / SHELF_MANIFEST_FILENAME).exists()
+
+
+def test_init_manifest_scaffolds_valid_shelf_yml(tmp_path: Path):
+    # Opt-in: a spec-shaped, implicit-category manifest whose name mirrors the
+    # config. A unicode name is preserved verbatim (not \uXXXX-escaped) so the
+    # memshelf use case reads cleanly.
+    shelf = Shelf(tmp_path / "s").init(
+        name="Мои документы", default_categories=["alpha"], manifest=True
+    )
+    manifest_path = shelf.root / SHELF_MANIFEST_FILENAME
+    assert manifest_path.is_file()
+    raw = manifest_path.read_text(encoding="utf-8")
+    data = yaml.safe_load(raw)
+
+    assert data["spec_version"] == "0.1"  # the two REQUIRED spec fields
+    assert data["mode"] == "single"
+    assert isinstance(data["spec_version"], str)  # string, not a 0.1 float
+    assert data["profile"] == "document"
+    assert data["docs_root"] == "docs"
+    assert data["index"] == {"path": "INDEX.md", "generated_by": "docshelf-mcp"}
+    assert data["name"] == "Мои документы"
+    assert "\\u" not in raw  # allow_unicode kept the Cyrillic literal
+    # Categories stay implicit so on-the-fly category creation can't rot it.
+    assert "categories" not in data
+
+
+def test_init_manifest_is_idempotent_and_preserves_edits(tmp_path: Path):
+    # Re-running init must never clobber a hand-edited manifest.
+    path = tmp_path / "s"
+    Shelf(path).init(name="S", manifest=True)
+    manifest_path = path / SHELF_MANIFEST_FILENAME
+    manifest_path.write_text(
+        'spec_version: "0.1"\nmode: single\nname: Custom\nprofile: memory\n',
+        encoding="utf-8",
+    )
+    Shelf(path).init(name="S", manifest=True)  # second init, still opt-in
+    data = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+    assert data["profile"] == "memory"  # not reset to "document"
+    assert data["name"] == "Custom"
+
+
+def test_scaffolded_manifest_raises_no_config_conflict(tmp_path: Path):
+    # A freshly-scaffolded manifest agrees with .docshelf.json by construction,
+    # so doctor must not flag docshelf-config-conflict.
+    shelf = Shelf(tmp_path / "s").init(
+        name="S", remote="https://github.com/me/r", manifest=True
+    )
+    shelf.add_document(FIXTURE, category="docs", title="Sample", split=False)
+    assert not any(
+        f.rule == "docshelf-config-conflict" for f in shelf.doctor()
+    )
+
+
+def test_doctor_ignores_absent_manifest(tmp_path: Path):
+    # The manifest requirement is openshelf's, not docshelf's: a shelf without
+    # a shelf.yml is never flagged for the conflict rule.
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    shelf.add_document(FIXTURE, category="docs", title="Sample", split=False)
+    assert not any(
+        f.rule == "docshelf-config-conflict" for f in shelf.doctor()
+    )
+
+
+def test_doctor_flags_manifest_name_conflict(tmp_path: Path):
+    shelf = Shelf(tmp_path / "s").init(name="Real Name", manifest=True)
+    # Drift .docshelf.json's name away from the manifest (the contract).
+    cfg_path = shelf.root / SHELF_METADATA_FILENAME
+    cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+    cfg["name"] = "Renamed By Hand"
+    cfg_path.write_text(json.dumps(cfg), encoding="utf-8")
+
+    findings = Shelf(shelf.root).doctor()
+    conflict = [f for f in findings if f.rule == "docshelf-config-conflict"]
+    assert len(conflict) == 1
+    assert conflict[0].severity == "warning"
+    assert conflict[0].path == SHELF_METADATA_FILENAME
+    assert "Real Name" in conflict[0].detail
+    assert "Renamed By Hand" in conflict[0].detail
+
+
+def test_doctor_flags_manifest_category_conflict(tmp_path: Path):
+    # .docshelf.json's category_order lists a category the manifest does not
+    # declare → the manifest's explicit list is the contract, so it's drift.
+    shelf = Shelf(tmp_path / "s").init(
+        name="S", default_categories=["alpha", "beta"]
+    )
+    (shelf.root / SHELF_MANIFEST_FILENAME).write_text(
+        'spec_version: "0.1"\nmode: single\nname: S\ncategories:\n  - alpha\n',
+        encoding="utf-8",
+    )
+    findings = Shelf(shelf.root).doctor()
+    conflict = [f for f in findings if f.rule == "docshelf-config-conflict"]
+    assert len(conflict) == 1
+    assert "category_order lists undeclared categories" in conflict[0].detail
+    assert "beta" in conflict[0].detail
+
+
+def test_doctor_no_conflict_when_manifest_omits_categories(tmp_path: Path):
+    # An implicit-category manifest (no `categories`) never conflicts on
+    # category_order, however many categories the config carries.
+    shelf = Shelf(tmp_path / "s").init(
+        name="S", default_categories=["alpha", "beta"], manifest=True
+    )
+    assert not any(
+        f.rule == "docshelf-config-conflict" for f in shelf.doctor()
+    )
+
+
+def test_doctor_tolerates_malformed_manifest(tmp_path: Path):
+    # Schema-validating shelf.yml is openshelf's job; docshelf's doctor must
+    # not crash on a non-mapping or unparseable manifest — it just has nothing
+    # to reconcile.
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    shelf.add_document(FIXTURE, category="docs", title="Sample", split=False)
+
+    (shelf.root / SHELF_MANIFEST_FILENAME).write_text(
+        "- not\n- a\n- mapping\n", encoding="utf-8"
+    )
+    assert not any(
+        f.rule == "docshelf-config-conflict" for f in Shelf(shelf.root).doctor()
+    )
+
+    (shelf.root / SHELF_MANIFEST_FILENAME).write_text(
+        "spec_version: '0.1'\n  mode: [unbalanced\n", encoding="utf-8"
+    )
+    assert not any(
+        f.rule == "docshelf-config-conflict" for f in Shelf(shelf.root).doctor()
+    )
+
+
+def test_init_shelf_tool_scaffolds_manifest_and_reports_it(tmp_path: Path):
+    from docshelf_mcp import tools as t
+
+    shelf_path = str(tmp_path / "s")
+    out = t.init_shelf(
+        t.InitShelfInput(shelf_path=shelf_path, name="Docs", manifest=True)
+    )
+    assert out["manifest"] is True
+    assert (tmp_path / "s" / SHELF_MANIFEST_FILENAME).is_file()
+
+    # Drift the impl config's name, then the doctor tool surfaces the conflict.
+    cfg_path = tmp_path / "s" / SHELF_METADATA_FILENAME
+    cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+    cfg["name"] = "Renamed"
+    cfg_path.write_text(json.dumps(cfg), encoding="utf-8")
+    report = t.doctor(t.DoctorInput(shelf_path=shelf_path))
+    assert report["by_rule"].get("docshelf-config-conflict") == 1
+
+
+def test_init_shelf_tool_default_writes_no_manifest(tmp_path: Path):
+    from docshelf_mcp import tools as t
+
+    shelf_path = str(tmp_path / "s")
+    out = t.init_shelf(t.InitShelfInput(shelf_path=shelf_path, name="Docs"))
+    assert out["manifest"] is False
+    assert not (tmp_path / "s" / SHELF_MANIFEST_FILENAME).exists()

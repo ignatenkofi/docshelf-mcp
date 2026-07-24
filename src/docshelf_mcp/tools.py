@@ -112,8 +112,18 @@ class AddDocumentInput(_BaseInput):
     title: str = Field(
         ...,
         description="Human-readable document title. Used as the INDEX entry and "
-        "(slugified) as the filename.",
+        "(slugified) as the filename unless 'slug' is given.",
         min_length=1,
+        max_length=200,
+    )
+    slug: str | None = Field(
+        default=None,
+        description="Optional filename stem, decoupling the on-disk file from the "
+        "display title. When set, the document is written to "
+        "docs/<category>/<slug>.md (the slug is slugified for filesystem safety) "
+        "while 'title' stays the INDEX/heading text untouched — e.g. a Cyrillic "
+        "title at a latin, date-prefixed path like '2026-07-22-m1-build-sprint'. "
+        "Defaults to deriving the filename from the title.",
         max_length=200,
     )
     description: str = Field(
@@ -388,6 +398,13 @@ class InitShelfInput(_BaseInput):
         "{branch}, {path} placeholders. Covers S3, R2, or any static host.",
         max_length=500,
     )
+    manifest: bool = Field(
+        default=False,
+        description="Also scaffold a shelf.yml manifest (shelf-spec v0: "
+        "spec_version 0.1, mode single, profile document) next to .docshelf.json, "
+        "making the shelf conformant to openshelf's shelf-spec. Off by default; a "
+        "shelf without one stays valid. Never overwrites an existing manifest.",
+    )
 
     @model_validator(mode="after")
     def _custom_needs_template(self) -> InitShelfInput:
@@ -413,6 +430,7 @@ def add_document(params: AddDocumentInput) -> dict:
         params.source_path,
         category=params.category,
         title=params.title,
+        slug=params.slug,
         description=params.description,
         split=params.split,
         quality=params.quality,
@@ -713,6 +731,7 @@ def init_shelf(params: InitShelfInput) -> dict:
         default_categories=params.default_categories,
         provider=params.provider,
         url_template=params.url_template,
+        manifest=params.manifest,
     )
     return {
         "status": "ok",
@@ -722,6 +741,7 @@ def init_shelf(params: InitShelfInput) -> dict:
         "branch": shelf.config.branch,
         "provider": shelf.config.provider,
         "categories": params.default_categories,
+        "manifest": params.manifest,
         "next_steps": (
             "1. cd into the shelf and `git init && git remote add origin <url>` if not done yet.\n"
             "2. Use `add_document` to add your first PDF or Markdown file.\n"
