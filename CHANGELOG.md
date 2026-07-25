@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-07-24
+
+The first release carrying runtime changes since 0.1.0 — 0.2.0 was a
+packaging-only release, byte-identical to 0.1.0. Everything merged over the
+two months since then ships here, including the slug-collision data-loss fix
+(#28), the UTF-8 corruption fix (#30), the torn-write fix (#32), DOCX / HTML /
+EPUB ingestion, `doctor`, `rename_document`, MCP resources, and shelf-spec v0
+recognition.
+
 ### Added
 - **shelf-spec v0 recognition** (docshelf-mcp is the spec's reference
   implementation, ADR-0005): `init_shelf` / `Shelf.init` gained an opt-in
@@ -29,45 +38,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   call, with no `.meta.json` hand-off. A `None`/blank slug keeps today's
   title-derived filename exactly. (#75)
 
-### Fixed
-- A shape-invalid `.meta.json` (valid JSON, wrong shape — e.g. a bare-string
-  entry or a list top level) no longer crashes `scan_shelf` and every tool on
-  top of it, including `doctor`. The scan coerces what it can (a bare string
-  becomes the title, non-string fields are dropped) and `doctor` reports the
-  deviation via the new `meta-shape` rule instead of dying. (#65)
-- `rename_document` pre-flights the split-directory target: renaming onto an
-  existing (e.g. orphaned) split dir now fails cleanly before disk is
-  touched, and a mid-move failure rolls the parent `.md` back — no more
-  half-renamed shelves. (#66)
-- An unknown `provider` (or `custom` without `url_template`) is rejected at
-  `init_shelf` / `Shelf.init` instead of silently rendering a link-less
-  INDEX; `doctor` flags a hand-edited config via the new `unknown-provider` /
-  `custom-without-template` rules. (#67)
-- MCP resource reads snap the 1 MB cap to a UTF-8 character boundary (the
-  same defect #30 fixed for `read_document`) and append a truncation notice,
-  so an oversized file no longer ends in U+FFFD mid-character with no hint
-  that more exists. (#68)
-- `slugify()` now returns `""` (not the literal `"section"`) for unsluggable
-  input, so the intended `or "uncategorized"` / `or "document"` fallbacks at
-  its call sites actually fire — an unsluggable title lands on `document.md`
-  instead of `section.md`. Previously-unguarded call sites (`rename_document`,
-  the section splitter) grew explicit fallbacks so an empty slug can't produce
-  a broken path. (#53)
-
-### Changed
-- `add_directory` (tool + `Shelf.add_directory`) now defaults to matching
-  **every** supported input type — Markdown, PDF, DOCX, HTML, EPUB — instead
-  of just `*.pdf` / `*.md`, so batch-importing a folder of `.docx` / `.epub`
-  no longer silently ingests nothing. The default is derived from
-  `converter.SUPPORTED_INPUT_SUFFIXES`, so it can't drift. (#52)
-
-### Documentation
-- Documented the read-only `docshelf:///` **MCP resources** feature (added in
-  #35) across the README, `docs/USAGE.md`, and `docs/ARCHITECTURE.md`: the URI
-  scheme, what's exposed (INDEX.md + every document / split section), the 1 MB
-  cap, and the on-start / after-mutation re-sync trigger. (#51)
-
-### Added
 - `docshelf_rename_document` tool (+ `Shelf.rename_document`) — retitle,
   recategorize, or re-describe a document without re-adding it. Moves the
   `.md`, its split-section directory, and its `.meta.json` entry (no
@@ -124,6 +94,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `search` responses now include `match_mode` (`"all"` or `"any"`). (#2)
 
 ### Fixed
+- A shape-invalid `.meta.json` (valid JSON, wrong shape — e.g. a bare-string
+  entry or a list top level) no longer crashes `scan_shelf` and every tool on
+  top of it, including `doctor`. The scan coerces what it can (a bare string
+  becomes the title, non-string fields are dropped) and `doctor` reports the
+  deviation via the new `meta-shape` rule instead of dying. (#65)
+- `rename_document` pre-flights the split-directory target: renaming onto an
+  existing (e.g. orphaned) split dir now fails cleanly before disk is
+  touched, and a mid-move failure rolls the parent `.md` back — no more
+  half-renamed shelves. (#66)
+- An unknown `provider` (or `custom` without `url_template`) is rejected at
+  `init_shelf` / `Shelf.init` instead of silently rendering a link-less
+  INDEX; `doctor` flags a hand-edited config via the new `unknown-provider` /
+  `custom-without-template` rules. (#67)
+- MCP resource reads snap the 1 MB cap to a UTF-8 character boundary (the
+  same defect #30 fixed for `read_document`) and append a truncation notice,
+  so an oversized file no longer ends in U+FFFD mid-character with no hint
+  that more exists. (#68)
+- `slugify()` now returns `""` (not the literal `"section"`) for unsluggable
+  input, so the intended `or "uncategorized"` / `or "document"` fallbacks at
+  its call sites actually fire — an unsluggable title lands on `document.md`
+  instead of `section.md`. Previously-unguarded call sites (`rename_document`,
+  the section splitter) grew explicit fallbacks so an empty slug can't produce
+  a broken path. (#53)
+
 - EPUB ingestion now assembles chapters in **spine (reading) order** instead
   of manifest order, and skips the navigation / cover documents, so a book
   whose manifest differs from its spine no longer comes out shuffled. (#29)
@@ -167,12 +161,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hatch's dynamic version. (#1)
 
 ### Changed
+- `add_directory` (tool + `Shelf.add_directory`) now defaults to matching
+  **every** supported input type — Markdown, PDF, DOCX, HTML, EPUB — instead
+  of just `*.pdf` / `*.md`, so batch-importing a folder of `.docx` / `.epub`
+  no longer silently ingests nothing. The default is derived from
+  `converter.SUPPORTED_INPUT_SUFFIXES`, so it can't drift. (#52)
+
 - Every shelf tool except `docshelf_init_shelf` / `docshelf_convert_pdf`
   now fails fast with a `NotAShelfError` when the resolved root is not an
   initialized shelf, instead of silently scaffolding one in the wrong
   directory. (#7)
 - `Shelf.add_document` gained a `rebuild_index` flag (default `True`) so
   batch callers can defer the index rebuild. (#11)
+
+### Documentation
+- Documented the read-only `docshelf:///` **MCP resources** feature (added in
+  #35) across the README, `docs/USAGE.md`, and `docs/ARCHITECTURE.md`: the URI
+  scheme, what's exposed (INDEX.md + every document / split section), the 1 MB
+  cap, and the on-start / after-mutation re-sync trigger. (#51)
 
 ### CI / packaging
 - CI now tests Python 3.13 and runs a smoke job on Windows and macOS, and
