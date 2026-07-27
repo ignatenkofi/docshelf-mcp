@@ -1,0 +1,10 @@
+# Candidate manifest for the CI conformance stage (shelf-spec ADR-0005).
+# docshelf-mcp's own `init` does not emit a shelf.yml yet, so the CI job
+# validates the scaffolded shelf against this candidate via
+# `shelf-spec validate --manifest` (see docs/advisory-ci.md in shelf-spec).
+# Must mirror what .github/workflows/conformance.yml scaffolds.
+spec_version: "0.1"
+mode: single
+name: ci-conformance
+profile: document
+categories: [guides, notes]
