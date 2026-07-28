@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **CI conformance stage against shelf-spec** (#64, shelf-spec ADR-0005):
+  `conformance.yml` scaffolds a fresh shelf with docshelf-mcp's own tools and
+  runs `shelf-spec validate --ci` on it, so format drift between the
+  reference implementation and the spec surfaces on PRs. Advisory while the
+  spec is v0; skips explicitly (and stays green) when the `SHELF_SPEC_TOKEN`
+  secret is absent, instead of failing the install under `continue-on-error`
+  and looking covered while validating nothing. The committed candidate
+  manifest `tests/fixtures/conformance.shelf.yml` stands in until `init`
+  emits a `shelf.yml` itself.
+
 ## [0.3.0] — 2026-07-24
 
 The first release carrying runtime changes since 0.1.0 — 0.2.0 was a

@@ -1,0 +1,81 @@
+name: shelf-conformance
+# ADR-0005 (shelf-spec) back-compat obligation: the reference implementation
+# validates its output format against the spec in CI. This job scaffolds a
+# fresh shelf with docshelf-mcp's own tools and runs `shelf-spec validate`
+# on it, so format drift between implementation and spec surfaces on PRs.
+#
+# Advisory while shelf-spec is v0 (continue-on-error); flip to blocking once
+# the spec stabilizes at v1 (#64).
+#
+# shelf-spec is a private repo, so the install step needs the
+# SHELF_SPEC_TOKEN secret (fine-grained PAT, Contents:read on shelf-spec).
+# Without the secret the job SKIPS EXPLICITLY and stays green with a notice:
+# an install failure under continue-on-error would go orange with the
+# validate step never running — a shelf that "looks covered" while nothing
+# is validated (the silent no-op trap from shelf-spec docs/advisory-ci.md).
+# Once shelf-spec publishes to PyPI the guard and token both disappear.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  conformance:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    env:
+      HAVE_TOKEN: ${{ secrets.SHELF_SPEC_TOKEN != '' }}
+    steps:
+      - name: No SHELF_SPEC_TOKEN — honest skip
+        if: env.HAVE_TOKEN != 'true'
+        run: |
+          echo "::notice::SHELF_SPEC_TOKEN secret is not set — conformance stage skipped."
+          echo "::notice::Add a fine-grained PAT (Contents:read on shelf-spec) to enable it."
+
+      - uses: actions/checkout@v7
+        if: env.HAVE_TOKEN == 'true'
+
+      - uses: actions/setup-python@v6
+        if: env.HAVE_TOKEN == 'true'
+        with:
+          python-version: "3.12"
+
+      - name: Install docshelf-mcp (this checkout) and shelf-spec
+        if: env.HAVE_TOKEN == 'true'
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install "git+https://x-access-token:${{ secrets.SHELF_SPEC_TOKEN }}@github.com/ignatenkofi/shelf-spec.git"
+
+      - name: Scaffold a shelf with docshelf-mcp's own tools
+        if: env.HAVE_TOKEN == 'true'
+        run: |
+          mkdir -p /tmp/ci-shelf
+          cd /tmp/ci-shelf
+          python - <<'PY'
+          from pathlib import Path
+          from docshelf_mcp.core.shelf import Shelf
+
+          shelf = Shelf(Path("."))
+          shelf.init(name="ci-conformance", default_categories=["guides", "notes"])
+          doc = Path("sample.md")
+          doc.write_text(
+              "# Sample guide\n\nA short body for conformance checking.\n",
+              encoding="utf-8",
+          )
+          shelf.add_document(
+              doc, category="guides", title="sample-guide", description="CI fixture"
+          )
+          doc.unlink()  # the source file is input, not shelf content
+          PY
+
+      - name: Validate against shelf-spec (candidate manifest)
+        if: env.HAVE_TOKEN == 'true'
+        # Exit contract: 0 conforms (info/warnings allowed), 1 spec
+        # violations, 2 config-error. The candidate manifest stands in until
+        # docshelf's init emits a shelf.yml itself.
+        run: |
+          shelf-spec validate --ci \
+            --manifest "$GITHUB_WORKSPACE/tests/fixtures/conformance.shelf.yml" \
+            /tmp/ci-shelf
