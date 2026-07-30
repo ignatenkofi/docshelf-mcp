@@ -29,7 +29,8 @@ classifiers = [
 ]
 
 dependencies = [
-    "mcp>=1.2.0",
+    # mcp 2.0.0 removed mcp.server.fastmcp — pin the SDK by major.
+    "mcp>=1.2.0,<2",
     "pydantic>=2.6",
     "pymupdf4llm>=0.0.17",
     # shelf.yml (shelf-spec v0 manifest) scaffolding + doctor's

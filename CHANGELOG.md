@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   manifest `tests/fixtures/conformance.shelf.yml` stands in until `init`
   emits a `shelf.yml` itself.
 
+### Fixed
+- Pinned the MCP SDK by major (`mcp>=1.2.0,<2`): mcp 2.0.0 removed
+  `mcp.server.fastmcp`, so fresh installs failed to import the server.
+
 ## [0.3.0] — 2026-07-24
 
 The first release carrying runtime changes since 0.1.0 — 0.2.0 was a
