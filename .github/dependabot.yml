@@ -15,15 +15,9 @@ updates:
       interval: "weekly"
     commit-message:
       prefix: "deps"
-    ignore:
-      # The `mcp>=1.2.0,<2` pin in pyproject.toml is load-bearing, not stale:
-      # mcp 2.0.0 removed `mcp.server.fastmcp` outright, and `server.py`
-      # imports `FastMCP` and `FunctionResource` from it. Dependabot has no
-      # way to see that, so it keeps proposing to widen the ceiling (PR #82,
-      # CI red on all six matrix jobs). Suppress the major here so the
-      # proposal does not come back every week; the migration itself is
-      # tracked as an issue, deliberately, because an ignore rule with no
-      # ticket behind it is exactly the silent automation this portfolio
-      # keeps finding.
-      - dependency-name: "mcp"
-        update-types: ["version-update:semver-major"]
+    # No `ignore` for mcp any more: the rule existed only to stop dependabot
+    # re-proposing mcp 2.x every week while `server.py` still imported
+    # `FastMCP`, and that port landed (#83). The next major will need the same
+    # treatment — a port plus a run of tests/test_stdio_protocol.py — but
+    # suppressing it before it exists would hide the proposal rather than
+    # answer it.

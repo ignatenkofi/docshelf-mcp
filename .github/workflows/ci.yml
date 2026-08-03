@@ -83,4 +83,7 @@ jobs:
           # ничего. Здесь клиент обязан быть, поэтому его отсутствие роняет
           # шаг явно, а не превращается в тихий пропуск.
           python -c "import mcp"
+          # И назвать версию: зелёный прогон доказывает совместимость с тем
+          # SDK, который реально стоял, а не с тем, что в пине глазами.
+          python -c "import importlib.metadata as m; print('mcp', m.version('mcp'))"
           pytest tests/test_stdio_protocol.py -v

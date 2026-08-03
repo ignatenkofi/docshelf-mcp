@@ -1,4 +1,4 @@
-"""FastMCP server entry point.
+"""MCP server entry point.
 
 Run from a terminal::
 
@@ -8,9 +8,9 @@ Or from a Python module::
 
     python -m docshelf_mcp
 
-The server uses **stdio transport** (the default for FastMCP) so it plugs
-straight into a Claude Desktop ``mcpServers`` configuration. See README.md
-for the exact JSON snippet.
+The server uses **stdio transport** (the default for ``MCPServer``) so it
+plugs straight into a Claude Desktop ``mcpServers`` configuration. See
+README.md for the exact JSON snippet.
 
 Every tool wraps a helper in :mod:`docshelf_mcp.tools` — keep tool logic
 out of this file, and you can unit-test the helpers without spinning up MCP.
@@ -24,9 +24,8 @@ import os
 from pathlib import Path
 from typing import Any
 
-from mcp.server.fastmcp import FastMCP
-from mcp.server.fastmcp.resources import FunctionResource
-from pydantic import AnyUrl
+from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.resources import FunctionResource
 
 from docshelf_mcp import __version__
 from docshelf_mcp import tools as t
@@ -39,7 +38,7 @@ __all__ = ["mcp", "main", "register_shelf_resources"]
 logger = logging.getLogger("docshelf_mcp")
 
 
-mcp = FastMCP("docshelf_mcp")
+mcp = MCPServer("docshelf_mcp")
 
 
 # --------------------------------------------------------------- resources
@@ -81,7 +80,9 @@ def _read_shelf_file(shelf: Shelf, relative_path: str) -> str:
 def _add_file_resource(shelf: Shelf, relative_path: str, *, title: str) -> None:
     mcp.add_resource(
         FunctionResource(
-            uri=AnyUrl(_resource_uri(relative_path)),
+            # mcp 2.x types this field as a plain ``str``; handing it the
+            # ``AnyUrl`` 1.x demanded now fails pydantic validation.
+            uri=_resource_uri(relative_path),
             name=relative_path,
             title=title,
             description=f"Shelf file {relative_path}",
