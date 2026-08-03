@@ -60,7 +60,7 @@ jobs:
       - name: Install
         run: |
           python -m pip install --upgrade pip
-          pip install -e .
+          pip install -e ".[dev]"
 
       - name: Import smoke check
         run: |
@@ -71,3 +71,16 @@ jobs:
         run: |
           docshelf-mcp --version
           docshelf-mcp --help
+
+      # The three checks above answer "does it import and print its version".
+      # They cannot answer "can a client talk to it" — and that is the question
+      # this job's name promises. A real client over the real stdio transport:
+      # handshake, tool call, resource read.
+      - name: Protocol smoke (real client over stdio)
+        run: |
+          # Файл начинается с importorskip("mcp") — правильно для голого
+          # чекаута, но здесь скип означал бы зелёную джобу, не проверившую
+          # ничего. Здесь клиент обязан быть, поэтому его отсутствие роняет
+          # шаг явно, а не превращается в тихий пропуск.
+          python -c "import mcp"
+          pytest tests/test_stdio_protocol.py -v
