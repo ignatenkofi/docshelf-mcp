@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import os
 import sys
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -37,7 +38,14 @@ from docshelf_mcp.core.shelf import Shelf  # noqa: E402
 # runs this on Windows and macOS too. The cap is generous on purpose: a flaky
 # timeout here would teach people to rerun the job, which is worse than the
 # gap this file closes.
-STARTUP_TIMEOUT = 60
+#
+# It is passed to every ClientSession below, and that is the point of it being
+# a named constant: a server that starts but never answers is exactly the
+# failure these tests exist to catch, and without the cap the job would hang on
+# it until GitHub's own six-hour limit — a red run nobody can read instead of a
+# failed assertion. A constant nothing reads would have been the same defect
+# this file is about, one level up.
+WIRE_TIMEOUT = timedelta(seconds=60)
 
 
 def _server(shelf_root: Path) -> StdioServerParameters:
@@ -75,7 +83,7 @@ async def test_client_completes_the_handshake_and_sees_every_tool(tmp_path: Path
     update whenever a tool is added. ``test_server.py`` owns the exact list.
     """
     async with stdio_client(_server(_seeded_shelf(tmp_path))) as (read, write):
-        async with ClientSession(read, write) as session:
+        async with ClientSession(read, write, read_timeout_seconds=WIRE_TIMEOUT) as session:
             init = await session.initialize()
             assert init.serverInfo.name
 
@@ -97,7 +105,7 @@ async def test_tool_call_over_the_wire_returns_real_shelf_state(tmp_path: Path):
     """
     root = _seeded_shelf(tmp_path)
     async with stdio_client(_server(root)) as (read, write):
-        async with ClientSession(read, write) as session:
+        async with ClientSession(read, write, read_timeout_seconds=WIRE_TIMEOUT) as session:
             await session.initialize()
             result = await session.call_tool(
                 "docshelf_list_documents", {"params": {"shelf_path": str(root)}}
@@ -119,7 +127,7 @@ async def test_resources_are_served_over_the_wire(tmp_path: Path):
     """
     root = _seeded_shelf(tmp_path)
     async with stdio_client(_server(root)) as (read, write):
-        async with ClientSession(read, write) as session:
+        async with ClientSession(read, write, read_timeout_seconds=WIRE_TIMEOUT) as session:
             await session.initialize()
             resources = (await session.list_resources()).resources
             uris = [str(resource.uri) for resource in resources]
@@ -129,3 +137,26 @@ async def test_resources_are_served_over_the_wire(tmp_path: Path):
             contents = (await session.read_resource(index)).contents
             body = "".join(getattr(item, "text", "") for item in contents)
             assert body.strip(), f"{index} came back empty"
+
+
+@pytest.mark.asyncio
+async def test_a_server_that_never_answers_fails_instead_of_hanging():
+    """The cap above must be load-bearing, not a comment.
+
+    A server that starts and then says nothing is the failure this file exists
+    to catch — and it is also the one that punishes an unarmed timeout hardest:
+    the job would sit until GitHub's six-hour limit and come back as a red run
+    with no assertion in it. Driving a deliberately silent process proves the
+    ``read_timeout_seconds`` wiring is real; a shorter cap keeps the test itself
+    quick, since what is under test is that the cap exists at all.
+    """
+    silent = StdioServerParameters(
+        command=sys.executable, args=["-c", "import time; time.sleep(3600)"]
+    )
+    with pytest.raises(BaseException) as caught:
+        async with stdio_client(silent) as (read, write):
+            async with ClientSession(
+                read, write, read_timeout_seconds=timedelta(seconds=2)
+            ) as session:
+                await session.initialize()
+    assert not isinstance(caught.value, AssertionError)

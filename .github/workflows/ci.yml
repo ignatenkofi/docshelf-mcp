@@ -77,4 +77,10 @@ jobs:
       # this job's name promises. A real client over the real stdio transport:
       # handshake, tool call, resource read.
       - name: Protocol smoke (real client over stdio)
-        run: pytest tests/test_stdio_protocol.py -v
+        run: |
+          # Файл начинается с importorskip("mcp") — правильно для голого
+          # чекаута, но здесь скип означал бы зелёную джобу, не проверившую
+          # ничего. Здесь клиент обязан быть, поэтому его отсутствие роняет
+          # шаг явно, а не превращается в тихий пропуск.
+          python -c "import mcp"
+          pytest tests/test_stdio_protocol.py -v
