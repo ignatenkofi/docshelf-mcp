@@ -31,6 +31,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   emits a `shelf.yml` itself.
 
 ### Changed
+- **Every optional extra got a major ceiling — the `mcp>=1.2.0` mistake was
+  still live in five more places.** The core dependencies were bounded earlier
+  in this release; the extras were not, and two of them already admitted a
+  *released* breaking major: `marker-pdf>=1.0.0` while marker-pdf 2.0.0 is on
+  PyPI, and `markdownify>=0.11` after that package crossed to 1.x. A fresh
+  `pip install 'docshelf-mcp[high-quality]'` therefore pulled a major this code
+  has never run against. Now `marker-pdf>=1.0.0,<2`, `mammoth>=1.6,<2`,
+  `markdownify>=0.11,<2`, `ebooklib>=0.18,<1`, `python-docx>=1.1,<2`.
+
+  Floors are deliberately left alone: raising them is a separate decision, and
+  the declared floor being older than what CI actually installs is a different
+  problem from the one fixed here. Dev tooling (`pytest`, `ruff`) is also left
+  uncapped on purpose — a ruff release that adds lints *should* surface as a
+  red dependabot PR rather than be silently excluded.
+
+- **`quality='high'` no longer reports an incompatible marker-pdf as a missing
+  one.** Both arrive as `ImportError`, and the handler answered both with
+  "marker-pdf is required ... but is not installed. Install it with: pip
+  install marker-pdf" — advice that cannot work when the package *is*
+  installed: the install succeeds, the message repeats, and the real cause
+  stays hidden. The two cases are now told apart with `find_spec`, and the
+  mismatch branch names the installed version and quotes the underlying
+  `ImportError`. Directly downstream of the missing ceiling above: environments
+  resolved before this release still carry marker-pdf 2.x.
+
 - **Ported the server to MCP SDK 2.x** (#83). `FastMCP`
   (`mcp.server.fastmcp`) became `MCPServer` (`mcp.server.mcpserver`) in
   2.0.0; the decorators, `add_resource` and `FunctionResource` carried over

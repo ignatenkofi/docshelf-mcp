@@ -55,22 +55,22 @@ dependencies = [
 
 [project.optional-dependencies]
 high-quality = [
-    "marker-pdf>=1.0.0",
+    "marker-pdf>=1.0.0,<2",
 ]
 docx = [
-    "mammoth>=1.6",
+    "mammoth>=1.6,<2",
 ]
 html = [
-    "markdownify>=0.11",
+    "markdownify>=0.11,<2",
 ]
 epub = [
-    "ebooklib>=0.18",
-    "markdownify>=0.11",
+    "ebooklib>=0.18,<1",
+    "markdownify>=0.11,<2",
 ]
 formats = [
-    "mammoth>=1.6",
-    "markdownify>=0.11",
-    "ebooklib>=0.18",
+    "mammoth>=1.6,<2",
+    "markdownify>=0.11,<2",
+    "ebooklib>=0.18,<1",
 ]
 dev = [
     "pytest>=8.0",
@@ -79,10 +79,10 @@ dev = [
     "ruff>=0.5.0",
     # Format backends + a .docx fixture builder, so the DOCX/HTML/EPUB
     # conversion tests run in CI.
-    "mammoth>=1.6",
-    "markdownify>=0.11",
-    "ebooklib>=0.18",
-    "python-docx>=1.1",
+    "mammoth>=1.6,<2",
+    "markdownify>=0.11,<2",
+    "ebooklib>=0.18,<1",
+    "python-docx>=1.1,<2",
 ]
 
 [project.scripts]

@@ -215,3 +215,42 @@ def test_pdf_conversion_rejects_a_file_that_is_not_a_pdf(tmp_path: Path):
 
     with pytest.raises(ConversionError):
         source_to_markdown(fake)
+
+
+def test_absent_marker_says_install_it(monkeypatch):
+    """The plain case must keep its actionable install hint."""
+    import importlib.util as _iu
+
+    from docshelf_mcp.core.converter import _marker_import_message
+
+    monkeypatch.setattr(_iu, "find_spec", lambda name: None)
+    msg = _marker_import_message(ImportError("No module named 'marker'"))
+
+    assert "is not installed" in msg
+    assert "pip install" in msg
+
+
+def test_incompatible_marker_is_not_reported_as_missing(monkeypatch):
+    """An installed-but-wrong-major marker must not be called "not installed".
+
+    The `high-quality` extra declared `marker-pdf>=1.0.0` with no ceiling while
+    marker-pdf 2.0.0 was already on PyPI, so a fresh install pulled an untested
+    major. If its API moved, the resulting ImportError used to be reported as
+    "marker-pdf is required ... but is not installed", sending the reader to
+    reinstall a package that is already there — the install succeeds, the
+    message repeats, and the real cause never surfaces.
+    """
+    import importlib.util as _iu
+
+    from docshelf_mcp.core import converter as conv
+
+    monkeypatch.setattr(_iu, "find_spec", lambda name: object())
+    monkeypatch.setattr(conv, "version", lambda name: "2.0.0")
+    msg = conv._marker_import_message(
+        ImportError("cannot import name 'PdfConverter' from 'marker.converters.pdf'")
+    )
+
+    assert "is not installed" not in msg, msg
+    assert "2.0.0" in msg, "installed version must be named — it is the whole diagnosis"
+    assert "version mismatch" in msg
+    assert "PdfConverter" in msg, "the underlying ImportError must survive into the message"
