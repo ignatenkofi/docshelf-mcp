@@ -24,6 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `server.py` edits alone the module imported and the server started while
   registering **zero** resources, which every in-process test happily missed.
 
+  Release note: this is a **breaking** change for installers — an environment
+  pinned to `mcp<2` can no longer resolve this package. The next release is a
+  minor bump (0.4.0), not a patch.
+
 ### Fixed
 - **The wire-timeout test could pass with the timeout dead.** It asserted only
   that *something* was raised, so when the 2.x port turned a `timedelta` cap
