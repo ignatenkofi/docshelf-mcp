@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **The PDF path finally has a test that converts a PDF.** Until now the suite
+  touched PDFs only through invalid ones (`not a pdf` written to a `.pdf`
+  name), which exercises the error branch and says nothing about conversion —
+  the package's headline feature was verified by nothing. `test_converter.py`
+  now generates a two-page PDF with PyMuPDF and asserts the Markdown carries
+  text from *both* pages plus the heading level derived from font size.
+
+  That gap mattered more than it looked: `pymupdf4llm` was pinned `>=0.0.17`
+  with no ceiling and upstream has since moved to 1.x, so a breaking change in
+  it would have reached users without CI noticing. The contract bug below was
+  found on the first run of the new test.
+
+- **CI conformance stage against shelf-spec** (#64, shelf-spec ADR-0005):
+  `conformance.yml` scaffolds a fresh shelf with docshelf-mcp's own tools and
+  runs `shelf-spec validate --ci` on it, so format drift between the
+  reference implementation and the spec surfaces on PRs. Advisory while the
+  spec is v0; skips explicitly (and stays green) when the `SHELF_SPEC_TOKEN`
+  secret is absent, instead of failing the install under `continue-on-error`
+  and looking covered while validating nothing. The committed candidate
+  manifest `tests/fixtures/conformance.shelf.yml` stands in until `init`
+  emits a `shelf.yml` itself.
+
 ### Changed
 - **Ported the server to MCP SDK 2.x** (#83). `FastMCP`
   (`mcp.server.fastmcp`) became `MCPServer` (`mcp.server.mcpserver`) in
@@ -26,25 +49,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   Release note: this is a **breaking** change for installers — an environment
   pinned to `mcp<2` can no longer resolve this package. The next release is a
-  minor bump (0.4.0), not a patch.
+  minor bump (0.4.0), not a patch. Releasing it is also the fix for #88: the
+  published 0.3.0 declares `mcp>=1.2.0` with no ceiling and does not start on
+  a fresh install today.
+
+- **Ceilings by major on every runtime dependency** (`pydantic<3`,
+  `pymupdf4llm<2`, `pyyaml<7`), for the reason the mcp pin already had one: an
+  unbounded `>=X` silently admits a breaking major and the only signal is a
+  user's traceback. `pymupdf4llm`'s floor moves to `1.0` — the 0.0.x line is a
+  different major, two years old, and was never covered by a test.
 
 ### Fixed
+- **A failing conversion escaped as the backend's own exception.**
+  `pdf_to_markdown`'s docstring promises `ConversionError` "if the requested
+  engine is missing or fails", and only the *missing* half was true: a damaged
+  or mislabelled PDF surfaced as `pymupdf.FileDataError`, so a caller following
+  the documented contract never caught it. Both engines now wrap their failure,
+  chaining the cause so the backend detail is one `__cause__` away.
+
 - **The wire-timeout test could pass with the timeout dead.** It asserted only
   that *something* was raised, so when the 2.x port turned a `timedelta` cap
   into an immediate `TypeError` inside anyio, the one test whose whole purpose
-  is proving the cap is load-bearing stayed green. It now asserts on elapsed
-  time: a cap that actually fired cannot come back instantly.
-
-### Added
-- **CI conformance stage against shelf-spec** (#64, shelf-spec ADR-0005):
-  `conformance.yml` scaffolds a fresh shelf with docshelf-mcp's own tools and
-  runs `shelf-spec validate --ci` on it, so format drift between the
-  reference implementation and the spec surfaces on PRs. Advisory while the
-  spec is v0; skips explicitly (and stays green) when the `SHELF_SPEC_TOKEN`
-  secret is absent, instead of failing the install under `continue-on-error`
-  and looking covered while validating nothing. The committed candidate
-  manifest `tests/fixtures/conformance.shelf.yml` stands in until `init`
-  emits a `shelf.yml` itself.
+  is proving the cap is load-bearing stayed green. It now asserts on the leaf
+  exception naming a timeout — elapsed time does not separate the cases.
 
 - Pinned the MCP SDK by major (`mcp>=1.2.0,<2`): mcp 2.0.0 removed
   `mcp.server.fastmcp`, so fresh installs failed to import the server.

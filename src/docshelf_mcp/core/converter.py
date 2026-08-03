@@ -60,7 +60,16 @@ def _convert_fast(pdf_path: Path) -> str:
             "Install it with: pip install pymupdf4llm"
         ) from exc
 
-    return pymupdf4llm.to_markdown(str(pdf_path))
+    try:
+        return pymupdf4llm.to_markdown(str(pdf_path))
+    except Exception as exc:  # noqa: BLE001 — the engine's exception type is its own
+        # The docstring on pdf_to_markdown promises ConversionError "if the
+        # requested engine is missing or fails", and only the *missing* half
+        # was true: a damaged or mislabelled PDF surfaced as
+        # pymupdf.FileDataError, so a caller following the documented contract
+        # never caught it. The cause is chained, so the backend detail is one
+        # `__cause__` away rather than lost.
+        raise ConversionError(f"pymupdf4llm could not read {pdf_path.name}: {exc}") from exc
 
 
 def _convert_high(pdf_path: Path) -> str:
@@ -75,10 +84,13 @@ def _convert_high(pdf_path: Path) -> str:
             "pip install marker-pdf. Note: marker-pdf pulls in PyTorch (~2 GB)."
         ) from exc
 
-    converter = PdfConverter(artifact_dict=create_model_dict())
-    rendered = converter(str(pdf_path))
-    text, _, _ = text_from_rendered(rendered)
-    return text
+    try:
+        converter = PdfConverter(artifact_dict=create_model_dict())
+        rendered = converter(str(pdf_path))
+        text, _, _ = text_from_rendered(rendered)
+        return text
+    except Exception as exc:  # noqa: BLE001 — same contract as the fast path
+        raise ConversionError(f"marker-pdf could not read {pdf_path.name}: {exc}") from exc
 
 
 def pdf_to_markdown(pdf_path: Path | str, quality: Quality = "fast") -> str:

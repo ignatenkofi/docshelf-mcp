@@ -36,11 +36,21 @@ dependencies = [
     # gets a port and a run of tests/test_stdio_protocol.py, not a widened
     # range.
     "mcp>=2.0.0,<3",
-    "pydantic>=2.6",
-    "pymupdf4llm>=0.0.17",
+    # Ceilings by major on everything below, for the same reason the mcp pin
+    # has one: an unbounded `>=X` silently admits a breaking major, and the
+    # only signal is a user's traceback. mcp 2.0.0 already did exactly that
+    # here (#88 — the published 0.3.0 declares `mcp>=1.2.0` and does not start
+    # on a fresh install).
+    "pydantic>=2.6,<3",
+    # Floor at 1.0, not the historical 0.0.17: the conversion path had no test
+    # at all until tests/test_converter.py grew one, so "0.0.17 works" was
+    # never anything but a claim. What CI actually verifies is whatever pip
+    # resolves under this range — the 1.x line. The 0.0.x line is a different
+    # major, two years old, and verified by nothing.
+    "pymupdf4llm>=1.0,<2",
     # shelf.yml (shelf-spec v0 manifest) scaffolding + doctor's
     # docshelf-config-conflict reconciliation read/write YAML (#63).
-    "pyyaml>=6.0",
+    "pyyaml>=6.0,<7",
 ]
 
 [project.optional-dependencies]

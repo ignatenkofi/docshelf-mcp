@@ -154,3 +154,64 @@ def test_epub_skips_nav_document(tmp_path: Path):
     assert "RealBodyText" in md
     # ebooklib's default nav renders a "Table of Contents" heading — absent here.
     assert "Table of Contents" not in md
+
+
+def _synthetic_pdf(path: Path) -> Path:
+    """Write a two-page PDF with known text, using PyMuPDF itself.
+
+    Generated rather than committed as a binary fixture: the bytes stay
+    readable in the diff, and the expected text lives next to the assertion
+    instead of in a file nobody can grep.
+    """
+    pymupdf = pytest.importorskip("pymupdf")
+    doc = pymupdf.open()
+    first = doc.new_page()
+    first.insert_text((72, 100), "Quarterly Report", fontsize=20)
+    first.insert_text((72, 140), "The reconciliation closed on the 14th.", fontsize=11)
+    second = doc.new_page()
+    second.insert_text((72, 100), "Appendix A", fontsize=16)
+    second.insert_text((72, 140), "Line items follow in the table below.", fontsize=11)
+    doc.save(path)
+    doc.close()
+    return path
+
+
+def test_pdf_conversion_carries_text_and_structure(tmp_path: Path):
+    """The package's headline feature, converting an actual PDF.
+
+    Until this test the whole suite touched PDFs only through invalid ones —
+    `not a pdf` written to a `.pdf` name — which exercises the *error* path and
+    says nothing about conversion. That left `pymupdf4llm`, an unbounded
+    dependency (`>=0.0.17`) whose upstream has since moved to 1.x, completely
+    unverified: a breaking change in it would have surfaced to users, not to
+    CI.
+
+    Asserted on both pages, because a converter that silently stopped after the
+    first would satisfy any single-page check.
+    """
+    pytest.importorskip("pymupdf4llm")
+    pdf = _synthetic_pdf(tmp_path / "report.pdf")
+
+    md = source_to_markdown(pdf)
+
+    assert "Quarterly Report" in md
+    assert "The reconciliation closed on the 14th." in md
+    assert "Appendix A" in md, "second page missing — conversion stopped early"
+    # Font size is what pymupdf4llm turns into heading level; losing that would
+    # make every shelved PDF one flat paragraph, which the splitter then cannot
+    # break into sections.
+    assert "# Quarterly Report" in md, md
+
+
+def test_pdf_conversion_rejects_a_file_that_is_not_a_pdf(tmp_path: Path):
+    """The error path stays an error — paired with the test above on purpose.
+
+    A converter that returned empty Markdown for anything unreadable would pass
+    "it converts" while quietly shelving blank documents.
+    """
+    pytest.importorskip("pymupdf4llm")
+    fake = tmp_path / "broken.pdf"
+    fake.write_text("not really a pdf", encoding="utf-8")
+
+    with pytest.raises(ConversionError):
+        source_to_markdown(fake)
