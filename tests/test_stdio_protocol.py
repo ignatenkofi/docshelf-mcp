@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import os
 import sys
-from datetime import timedelta
+import time
 from pathlib import Path
 
 import pytest
@@ -45,7 +45,38 @@ from docshelf_mcp.core.shelf import Shelf  # noqa: E402
 # it until GitHub's own six-hour limit — a red run nobody can read instead of a
 # failed assertion. A constant nothing reads would have been the same defect
 # this file is about, one level up.
-WIRE_TIMEOUT = timedelta(seconds=60)
+# Seconds as a float: mcp 2.x types ``read_timeout_seconds`` that way, where
+# 1.x took a ``timedelta``. Handing 2.x a timedelta does not get rejected at
+# the call site — it raises TypeError deep inside anyio (#83).
+WIRE_TIMEOUT = 60.0
+
+
+def _flatten_exception(exc: BaseException) -> list[BaseException]:
+    """Every exception in the tree: the group, its members, and their causes."""
+    seen: list[BaseException] = []
+
+    def walk(node: BaseException) -> None:
+        if any(node is known for known in seen):
+            return
+        seen.append(node)
+        for member in getattr(node, "exceptions", None) or ():
+            walk(member)
+        if node.__cause__ is not None:
+            walk(node.__cause__)
+
+    walk(exc)
+    return seen
+
+
+def _looks_like_timeout(exc: BaseException) -> bool:
+    """True for "the wait ran out", whatever type the SDK wraps it in.
+
+    Matched on the message rather than a concrete class on purpose: the class
+    lives in the SDK (`mcp.shared.exceptions.MCPError` today) and pinning it
+    here would make this file break on a rename that changes nothing about the
+    behaviour under test.
+    """
+    return isinstance(exc, TimeoutError) or "timed out" in str(exc).lower()
 
 
 def _server(shelf_root: Path) -> StdioServerParameters:
@@ -85,7 +116,7 @@ async def test_client_completes_the_handshake_and_sees_every_tool(tmp_path: Path
     async with stdio_client(_server(_seeded_shelf(tmp_path))) as (read, write):
         async with ClientSession(read, write, read_timeout_seconds=WIRE_TIMEOUT) as session:
             init = await session.initialize()
-            assert init.serverInfo.name
+            assert init.server_info.name
 
             names = {tool.name for tool in (await session.list_tools()).tools}
             assert {
@@ -110,7 +141,7 @@ async def test_tool_call_over_the_wire_returns_real_shelf_state(tmp_path: Path):
             result = await session.call_tool(
                 "docshelf_list_documents", {"params": {"shelf_path": str(root)}}
             )
-            assert not result.isError, result.content
+            assert not result.is_error, result.content
             payload = "".join(
                 block.text for block in result.content if getattr(block, "text", None)
             )
@@ -149,14 +180,35 @@ async def test_a_server_that_never_answers_fails_instead_of_hanging():
     with no assertion in it. Driving a deliberately silent process proves the
     ``read_timeout_seconds`` wiring is real; a shorter cap keeps the test itself
     quick, since what is under test is that the cap exists at all.
+
+    The assertion has to name a *timeout*, not merely "something was raised".
+    In its weaker form this test stayed green right through the mcp 2.x port
+    while the cap was dead: 2.x types ``read_timeout_seconds`` as float
+    seconds, a leftover ``timedelta`` blows up as ``TypeError`` deep inside
+    anyio, and any exception satisfied ``pytest.raises(BaseException)``.
+
+    Elapsed time does not separate the two either — measured on this very
+    port, the dead cap came back in 2.02s and the live one in 4.03s, both far
+    from instant, because spawning the child and tearing the task group down
+    dominates. What does separate them is the leaf exception: ``MCPError:
+    Request 'initialize' timed out`` against ``TypeError``. Exceptions arrive
+    wrapped in nested ``ExceptionGroup``s, so the tree is flattened first.
     """
     silent = StdioServerParameters(
         command=sys.executable, args=["-c", "import time; time.sleep(3600)"]
     )
+    started = time.monotonic()
     with pytest.raises(BaseException) as caught:
         async with stdio_client(silent) as (read, write):
-            async with ClientSession(
-                read, write, read_timeout_seconds=timedelta(seconds=2)
-            ) as session:
+            async with ClientSession(read, write, read_timeout_seconds=2.0) as session:
                 await session.initialize()
-    assert not isinstance(caught.value, AssertionError)
+    elapsed = time.monotonic() - started
+
+    raised = _flatten_exception(caught.value)
+    assert not any(isinstance(exc, AssertionError) for exc in raised)
+    assert any(_looks_like_timeout(exc) for exc in raised), (
+        "nothing in the failure says the request timed out, so the cap was not "
+        "what stopped it: "
+        + "; ".join(f"{type(exc).__name__}: {exc}" for exc in raised)
+    )
+    assert elapsed < 60, f"waited {elapsed:.0f}s — the cap did not fire at all"

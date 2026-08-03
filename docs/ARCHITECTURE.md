@@ -42,7 +42,7 @@
 | `core.indexer` | Walks the on-disk shelf, builds `INDEX.md`. Renders raw GitHub URLs when a remote is configured. |
 | `core.shelf` | High-level facade (`Shelf` class). Coordinates the four modules above and persists shelf metadata. |
 | `tools` | Pydantic input models + thin wrappers around `Shelf`. Returns plain dicts. |
-| `server` | FastMCP server. Each `@mcp.tool` is a thin wrapper around `tools.py` that JSON-serialises the result. Also registers every shelf file as a read-only `docshelf:///` MCP resource. |
+| `server` | MCP server (`MCPServer`, mcp SDK 2.x). Each `@mcp.tool` is a thin wrapper around `tools.py` that JSON-serialises the result. Also registers every shelf file as a read-only `docshelf:///` MCP resource. |
 | `config` | Resolves `DOCSHELF_ROOT` env var → shelf root path. |
 
 ## Design choices
@@ -76,9 +76,11 @@ A few reasons:
 
 The README + `add_document`'s response include the suggested git command, so the human / agent stays in the loop.
 
-### Why FastMCP + Pydantic?
+### Why `MCPServer` + Pydantic?
 
-FastMCP auto-generates input schemas from Pydantic models — that's the modern MCP Python idiom and minimises the gap between "Python function" and "MCP tool". Tool implementations live in `tools.py` so they're testable without an MCP runtime.
+`MCPServer` auto-generates input schemas from Pydantic models — that's the modern MCP Python idiom and minimises the gap between "Python function" and "MCP tool". Tool implementations live in `tools.py` so they're testable without an MCP runtime.
+
+The class was called `FastMCP` (`mcp.server.fastmcp`) until SDK 2.0.0 renamed it to `MCPServer` (`mcp.server.mcpserver`); the decorators, `add_resource`, and `FunctionResource` carried over unchanged. Because "the module imports" cannot tell you whether a client can still talk to the server, a change at this level is judged by `tests/test_stdio_protocol.py` — a real client over stdio — and not by the import smoke check.
 
 ### Why expose shelf files as MCP resources (not only tools)?
 

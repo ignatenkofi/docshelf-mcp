@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Ported the server to MCP SDK 2.x** (#83). `FastMCP`
+  (`mcp.server.fastmcp`) became `MCPServer` (`mcp.server.mcpserver`) in
+  2.0.0; the decorators, `add_resource` and `FunctionResource` carried over
+  unchanged, and `FunctionResource.uri` became a plain `str` where 1.x
+  required `AnyUrl`. The pin moves to `mcp>=2.0.0,<3` — a **floor**, not just
+  a raised ceiling, because a 1.x install now fails at import — and the
+  dependabot `ignore` rule for mcp majors is gone, since it existed only to
+  stop the proposal that this change answers.
+
+  The client side of `tests/test_stdio_protocol.py` moved with it:
+  `read_timeout_seconds` takes float seconds instead of a `timedelta`, and
+  the result models are snake_case (`server_info`, `is_error`). Judged by
+  that protocol run, not by the import smoke check — after the three
+  `server.py` edits alone the module imported and the server started while
+  registering **zero** resources, which every in-process test happily missed.
+
+  Release note: this is a **breaking** change for installers — an environment
+  pinned to `mcp<2` can no longer resolve this package. The next release is a
+  minor bump (0.4.0), not a patch.
+
+### Fixed
+- **The wire-timeout test could pass with the timeout dead.** It asserted only
+  that *something* was raised, so when the 2.x port turned a `timedelta` cap
+  into an immediate `TypeError` inside anyio, the one test whose whole purpose
+  is proving the cap is load-bearing stayed green. It now asserts on elapsed
+  time: a cap that actually fired cannot come back instantly.
+
 ### Added
 - **CI conformance stage against shelf-spec** (#64, shelf-spec ADR-0005):
   `conformance.yml` scaffolds a fresh shelf with docshelf-mcp's own tools and
@@ -18,9 +46,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   manifest `tests/fixtures/conformance.shelf.yml` stands in until `init`
   emits a `shelf.yml` itself.
 
-### Fixed
 - Pinned the MCP SDK by major (`mcp>=1.2.0,<2`): mcp 2.0.0 removed
   `mcp.server.fastmcp`, so fresh installs failed to import the server.
+  (Superseded above: the port landed and the pin moved to `>=2.0.0,<3`.)
 
 ## [0.3.0] — 2026-07-24
 

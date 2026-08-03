@@ -29,10 +29,13 @@ classifiers = [
 ]
 
 dependencies = [
-    # mcp 2.0.0 removed mcp.server.fastmcp — pin the SDK by major. Lifting
-    # this ceiling means porting server.py off FastMCP first; dependabot is
-    # told not to propose it (.github/dependabot.yml).
-    "mcp>=1.2.0,<2",
+    # Floor at 2.0: server.py imports MCPServer from mcp.server.mcpserver,
+    # which does not exist in 1.x (the 1.x name, mcp.server.fastmcp, was
+    # removed in 2.0.0) — a 1.x install fails at import, so the range must
+    # not admit one. Ceiling by major, same reason as before: the next major
+    # gets a port and a run of tests/test_stdio_protocol.py, not a widened
+    # range.
+    "mcp>=2.0.0,<3",
     "pydantic>=2.6",
     "pymupdf4llm>=0.0.17",
     # shelf.yml (shelf-spec v0 manifest) scaffolding + doctor's
