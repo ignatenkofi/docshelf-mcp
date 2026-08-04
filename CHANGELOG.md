@@ -31,6 +31,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   emits a `shelf.yml` itself.
 
 ### Changed
+- **The `pymupdf4llm` ceiling could not fire, and that is the same defect the
+  ceilings exist to prevent.** The pin was `>=1.0,<2` — but this package does
+  not use semver: it went `0.3.4` → `1.27.2.1`, adopting PyMuPDF's version
+  numbers wholesale. Its breaking changes therefore ride in the *minor*
+  position, and the major only moves when PyMuPDF's does. A `<2` bound could
+  not have blocked anything pymupdf4llm actually does. Now `<1.29` (installed:
+  1.28.0), so each minor bump arrives as a dependabot PR judged by the PDF
+  conversion test. Found by an adversarial read of this branch's own diff.
+
 - **Every optional extra got a major ceiling — the `mcp>=1.2.0` mistake was
   still live in five more places.** The core dependencies were bounded earlier
   in this release; the extras were not, and two of them already admitted a

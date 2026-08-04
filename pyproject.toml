@@ -47,7 +47,16 @@ dependencies = [
     # never anything but a claim. What CI actually verifies is whatever pip
     # resolves under this range — the 1.x line. The 0.0.x line is a different
     # major, two years old, and verified by nothing.
-    "pymupdf4llm>=1.0,<2",
+    #
+    # Ceiling on the MINOR, not the major, and that is not sloppiness: this
+    # package does not use semver. It went 0.3.4 -> 1.27.2.1, adopting PyMuPDF's
+    # version numbers wholesale, so its breaking changes ride in the minor
+    # position (1.27 -> 1.28) and the major only moves when PyMuPDF's does.
+    # A `<2` bound here could not fire for anything pymupdf4llm actually does —
+    # it would be a guard incapable of failing, which is the exact defect the
+    # rest of these bounds exist to prevent. Each minor bump arrives as a
+    # dependabot PR, and the PDF conversion test is what judges it.
+    "pymupdf4llm>=1.0,<1.29",
     # shelf.yml (shelf-spec v0 manifest) scaffolding + doctor's
     # docshelf-config-conflict reconciliation read/write YAML (#63).
     "pyyaml>=6.0,<7",
