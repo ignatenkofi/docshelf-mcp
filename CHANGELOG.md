@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-08-04
+
 ### Added
 - **The PDF path finally has a test that converts a PDF.** Until now the suite
   touched PDFs only through invalid ones (`not a pdf` written to a `.pdf`
