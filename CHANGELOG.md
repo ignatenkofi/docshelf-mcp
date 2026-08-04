@@ -34,11 +34,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Failure-path tests for the DOCX/HTML/EPUB backends**, which had none — the
   suite covered only successful conversions, so the contract breakage fixed
-  below had nothing to trip over. Ten tests: five backend failure shapes, the
-  double-wrap guard on the shared HTML helper, and the `FileNotFoundError`
-  boundary.
+  below had nothing to trip over. Eleven tests: five backend failure shapes,
+  the double-wrap guard on the shared HTML helper, the `FileNotFoundError`
+  boundary, and the marker dependency case.
 
-  Eight of them stub the backend rather than importing it. That is not a
+  Nine of them stub the backend rather than importing it. That is not a
   concession to bare containers: a stub is the only way to make a *healthy*
   backend fail on demand, and it keeps the contract under test where the
   optional extras aren't installed — `importorskip` there hands back a green
@@ -137,6 +137,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   by passing a different path while "the backend could not read this file" is
   not. Every other `OSError` is a conversion failure and is wrapped.
 
+- **A broken marker-pdf *dependency* was reported as an incompatible
+  marker-pdf.** The `find_spec` split above answers "is marker there at all",
+  which is a different question from "what failed to import" — and marker's
+  import tree reaches far past marker, into PyTorch and the stack behind it.
+  A missing or half-installed one of those raises from inside `from
+  marker.converters.pdf import ...` exactly where a moved marker API would,
+  and every clause of the version-mismatch advice was then false: the
+  installed marker-pdf was inside the tested range, nothing was mismatched,
+  and reinstalling — "will not help", said the message — was the one thing
+  that would have. The reader was sent to pin a package that was never the
+  problem while the module that actually failed went unnamed. The handler now
+  reads `ImportError.name`, which the import machinery sets for every shape it
+  raises, and anything outside marker's own namespace is reported as the
+  dependency problem it is, named.
 
 - **The wire-timeout test could pass with the timeout dead.** It asserted only
   that *something* was raised, so when the 2.x port turned a `timedelta` cap

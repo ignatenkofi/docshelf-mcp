@@ -123,11 +123,13 @@ _MARKER_ABSENT = (
 
 
 def _marker_import_message(exc: ImportError) -> str:
-    """"Not installed" and "installed but incompatible" are different problems.
+    """Three different problems arrive here as the same ``ImportError``.
 
-    They arrive as the same ``ImportError``, and reporting both as the first
-    sends the reader to reinstall a package that is already there — the
-    install succeeds, the message repeats, and the real cause stays hidden.
+    "Not installed", "installed but incompatible", and "installed, compatible,
+    but one of its dependencies is broken" all reach this handler identically,
+    and each has different advice. Reporting the second as the first sends the
+    reader to reinstall a package that is already there — the install succeeds,
+    the message repeats, and the real cause stays hidden.
 
     Not hypothetical: the ``high-quality`` extra declared ``marker-pdf>=1.0.0``
     with no upper bound while marker-pdf 2.0.0 was already released, so a fresh
@@ -147,6 +149,33 @@ def _marker_import_message(exc: ImportError) -> str:
         installed = version("marker-pdf")
     except PackageNotFoundError:
         installed = "unknown"
+
+    # find_spec answered "is marker there at all". It cannot answer *what*
+    # failed to import, and marker's import tree reaches far past marker:
+    # PyTorch and a dozen more packages load behind `from
+    # marker.converters.pdf import ...`. A missing or half-installed one of
+    # those raises exactly where a moved marker API would, and blaming
+    # marker-pdf's version for it makes every clause below false — the version
+    # is fine, it is not a mismatch, and reinstalling is precisely what helps.
+    #
+    # The import machinery does say which module it was: ImportError.name is
+    # set for every shape it raises — ModuleNotFoundError names the module it
+    # could not find ('torch'), and "cannot import name X from Y" names Y.
+    # Anything outside marker's own namespace is a dependency problem.
+    failed = getattr(exc, "name", None)
+    if failed and failed != "marker" and not failed.startswith("marker."):
+        return (
+            f"marker-pdf is installed (version {installed}), but importing it failed inside "
+            f"{failed!r}, which is not part of marker-pdf: {exc}. That points at a missing or "
+            f"broken dependency of marker-pdf, not at marker-pdf's own version — so reinstalling "
+            f"is worth trying here: pip install --force-reinstall 'docshelf-mcp[high-quality]' "
+            f"(or repair {failed!r} directly). marker-pdf pulls in PyTorch and its stack, which "
+            "is where this usually goes wrong."
+        )
+
+    # Either the failure came from inside marker itself, or `name` is unset —
+    # which the machinery does not do, only hand-built ImportErrors. Both land
+    # on the version reading, already narrowed by find_spec to "marker is here".
     return (
         f"marker-pdf is installed (version {installed}) but does not expose the API "
         f"docshelf-mcp uses: {exc}. This is a version mismatch, not a missing package — "

@@ -1,7 +1,13 @@
 """Tests for the multi-format source → Markdown dispatcher.
 
-The DOCX/HTML/EPUB backends are optional; each test skips cleanly if its
-backend isn't installed (they are in the dev extra, so they run in CI).
+The DOCX/HTML/EPUB backends are optional. Tests of *successful* conversion
+need the real library and skip cleanly without it (they are in the dev extra,
+so they run in CI).
+
+Tests of the *failure* contract do not skip: they stub the backend, because a
+stub is the only way to make a healthy backend fail on demand, and because a
+contract that is only checked where the extras happen to be installed is a
+contract nobody is checking.
 """
 
 import sys
@@ -464,8 +470,13 @@ def test_incompatible_marker_is_not_reported_as_missing(monkeypatch):
 
     monkeypatch.setattr(_iu, "find_spec", lambda name: object())
     monkeypatch.setattr(conv, "version", lambda name: "2.0.0")
+    # `name` set the way the import machinery sets it: for "cannot import name
+    # X from Y" it is Y, the module that was found but lacked the attribute.
     msg = conv._marker_import_message(
-        ImportError("cannot import name 'PdfConverter' from 'marker.converters.pdf'")
+        ImportError(
+            "cannot import name 'PdfConverter' from 'marker.converters.pdf'",
+            name="marker.converters.pdf",
+        )
     )
 
     assert "is not installed" not in msg, msg
@@ -473,3 +484,32 @@ def test_incompatible_marker_is_not_reported_as_missing(monkeypatch):
     assert "version mismatch" in msg
     assert "PdfConverter" in msg, "the underlying ImportError must survive into the message"
 
+
+def test_broken_marker_dependency_is_not_called_a_version_mismatch(monkeypatch):
+    """A third case the missing/incompatible split does not cover.
+
+    marker-pdf pulls in PyTorch and a large stack behind it. When one of those
+    is missing or half-installed, the failure surfaces from inside `from
+    marker.converters.pdf import ...` exactly like a moved marker API does —
+    same exception type, same import statement, and find_spec("marker") says
+    "present" for both.
+
+    Reported as a version mismatch, every clause of the advice is false: the
+    installed marker-pdf is inside the tested range, nothing is mismatched,
+    and reinstalling is the one thing that *would* help. The reader is sent to
+    pin a package that was never the problem while the missing dependency goes
+    unnamed.
+    """
+    import importlib.util as _iu
+
+    from docshelf_mcp.core import converter as conv
+
+    monkeypatch.setattr(_iu, "find_spec", lambda name: object())
+    monkeypatch.setattr(conv, "version", lambda name: "1.8.2")  # squarely inside `>=1.0,<2`
+    msg = conv._marker_import_message(ModuleNotFoundError("No module named 'torch'", name="torch"))
+
+    assert "torch" in msg, "the module that actually failed must be named — it is the fix"
+    assert "version mismatch" not in msg, msg
+    assert "reinstalling will not help" not in msg, msg
+    assert "marker-pdf>=1.0,<2" not in msg, "pinning marker-pdf cannot fix a missing torch"
+    assert "is not installed" not in msg, "marker-pdf is installed; only its dependency is not"
