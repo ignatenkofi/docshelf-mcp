@@ -32,6 +32,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   manifest `tests/fixtures/conformance.shelf.yml` stands in until `init`
   emits a `shelf.yml` itself.
 
+- **Failure-path tests for the DOCX/HTML/EPUB backends**, which had none — the
+  suite covered only successful conversions, so the contract breakage fixed
+  below had nothing to trip over. Ten tests: five backend failure shapes, the
+  double-wrap guard on the shared HTML helper, and the `FileNotFoundError`
+  boundary.
+
+  Eight of them stub the backend rather than importing it. That is not a
+  concession to bare containers: a stub is the only way to make a *healthy*
+  backend fail on demand, and it keeps the contract under test where the
+  optional extras aren't installed — `importorskip` there hands back a green
+  run that verified nothing. Two more run against real mammoth and ebooklib,
+  proving the stubs model failures that actually happen.
+
 ### Changed
 - **The `pymupdf4llm` ceiling could not fire, and that is the same defect the
   ceilings exist to prevent.** The pin was `>=1.0,<2` — but this package does
@@ -102,6 +115,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   or mislabelled PDF surfaced as `pymupdf.FileDataError`, so a caller following
   the documented contract never caught it. Both engines now wrap their failure,
   chaining the cause so the backend detail is one `__cause__` away.
+
+- **The same broken promise, in the three backends the PDF fix did not reach.**
+  `source_to_markdown` makes the identical guarantee ("the backend is
+  missing/fails" → `ConversionError`), and only its *missing* half was true for
+  DOCX/HTML/EPUB: mammoth's `zipfile.BadZipFile` on a mislabelled file,
+  ebooklib's `EpubException` on a corrupt archive, an unreadable HTML source's
+  `IsADirectoryError`, and markdownify's own errors all escaped raw. In a
+  directory scan that is the difference between one document being skipped and
+  the whole run dying. All five sites now translate, chaining the cause.
+
+  `_html_to_markdown` is shared by the html and epub paths and is wrapped
+  once, inside itself — so an epub chapter is not wrapped twice with the real
+  failure buried at `__cause__.__cause__`, and neither path is left uncovered.
+  Failures now name what they were reading (`markdownify could not convert ch7
+  in book.epub`), which in a 600-page EPUB is the difference between a
+  diagnosis and a shrug.
+
+  `FileNotFoundError` deliberately still escapes as itself: the docstring
+  documents it as a separate outcome, and "that path does not exist" is fixed
+  by passing a different path while "the backend could not read this file" is
+  not. Every other `OSError` is a conversion failure and is wrapped.
+
 
 - **The wire-timeout test could pass with the timeout dead.** It asserted only
   that *something* was raised, so when the 2.x port turned a `timedelta` cap

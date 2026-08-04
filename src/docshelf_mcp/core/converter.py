@@ -16,6 +16,8 @@ pull in PyMuPDF or marker until you actually call :func:`pdf_to_markdown`.
 from __future__ import annotations
 
 import importlib.util
+from collections.abc import Iterator
+from contextlib import contextmanager
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Literal
@@ -51,6 +53,45 @@ SUPPORTED_INPUT_GLOBS = tuple(f"*{suffix}" for suffix in SUPPORTED_INPUT_SUFFIXE
 
 class ConversionError(RuntimeError):
     """Raised when conversion fails or a required engine is missing."""
+
+
+@contextmanager
+def _as_conversion_error(detail: str) -> Iterator[None]:
+    """Re-raise whatever a backend raises as :class:`ConversionError`.
+
+    :func:`source_to_markdown` documents ConversionError as *the* failure a
+    caller catches, and the PDF engines already keep that promise. The other
+    backends did not: a mislabelled ``.docx`` reached mammoth as a non-zip and
+    came back as ``zipfile.BadZipFile``, a corrupt ``.epub`` as
+    ``ebooklib.epub.EpubException``. A caller following the documented contract
+    caught neither, so one bad file took down a whole shelf run. The original
+    is chained (``raise ... from``), leaving the backend detail one
+    ``__cause__`` away rather than lost.
+
+    Two exceptions pass through untouched, both deliberately:
+
+    * ``ConversionError`` — already ours. :func:`_html_to_markdown` is shared
+      by the html and epub paths and wraps its own engine call, so an epub
+      chapter must not come back wrapped twice with the real cause buried a
+      level deeper.
+    * ``FileNotFoundError`` — :func:`source_to_markdown` documents it as a
+      *separate* outcome. "That path does not exist" is the caller's mistake;
+      "the backend could not read this file" is the document's. Only the first
+      is fixed by passing a different path, so collapsing the two would cost
+      the caller the one distinction it can act on. Every other ``OSError``
+      (permission, is-a-directory, I/O) *is* a conversion failure and is
+      wrapped.
+
+    Each ``with`` block stays around the backend call itself. Wrapping whole
+    function bodies would also swallow bugs in this module, and a ``TypeError``
+    of our own making must not arrive dressed as a broken document.
+    """
+    try:
+        yield
+    except (ConversionError, FileNotFoundError):
+        raise
+    except Exception as exc:  # noqa: BLE001 — the backend's exception type is its own
+        raise ConversionError(f"{detail}: {exc}") from exc
 
 
 def _convert_fast(pdf_path: Path) -> str:
@@ -170,11 +211,22 @@ def _convert_docx(path: Path) -> str:
             "mammoth is required for .docx conversion but is not installed. "
             "Install it with: pip install 'docshelf-mcp[docx]'"
         ) from exc
-    with path.open("rb") as fh:
+    # The open() is inside the wrap on purpose: a directory or an unreadable
+    # file wearing a .docx name is a conversion failure like any other. A
+    # genuinely missing path still raises FileNotFoundError — see
+    # _as_conversion_error.
+    with _as_conversion_error(f"mammoth could not read {path.name}"), path.open("rb") as fh:
         return mammoth.convert_to_markdown(fh).value
 
 
-def _html_to_markdown(html: str) -> str:
+def _html_to_markdown(html: str, origin: str = "the HTML") -> str:
+    """Render an HTML string as Markdown.
+
+    ``origin`` names what the string came from — a file name, or an epub
+    chapter id — so a failure says *which* chapter of a 600-page book broke.
+    Shared by the html and epub paths, and the single place the markdownify
+    call is wrapped, so neither caller has to wrap it again.
+    """
     try:
         from markdownify import markdownify  # type: ignore[import-not-found]
     except ImportError as exc:
@@ -183,11 +235,16 @@ def _html_to_markdown(html: str) -> str:
             "installed. Install it with: pip install 'docshelf-mcp[html]' "
             "(or '[epub]')"
         ) from exc
-    return markdownify(html, heading_style="ATX")
+    with _as_conversion_error(f"markdownify could not convert {origin}"):
+        return markdownify(html, heading_style="ATX")
 
 
 def _convert_html(path: Path) -> str:
-    return _html_to_markdown(path.read_text(encoding="utf-8", errors="replace"))
+    with _as_conversion_error(f"could not read {path.name}"):
+        html = path.read_text(encoding="utf-8", errors="replace")
+    # Deliberately outside the block above: _html_to_markdown wraps its own
+    # engine call, and re-wrapping would bury the real cause a level deeper.
+    return _html_to_markdown(html, origin=path.name)
 
 
 def _convert_epub(path: Path) -> str:
@@ -199,7 +256,8 @@ def _convert_epub(path: Path) -> str:
             "ebooklib is required for .epub conversion but is not installed. "
             "Install it with: pip install 'docshelf-mcp[epub]'"
         ) from exc
-    book = epub.read_epub(str(path))
+    with _as_conversion_error(f"ebooklib could not read {path.name}"):
+        book = epub.read_epub(str(path))
 
     # Classes that are documents but not body chapters — the navigation page
     # (EPUB3 nav / ToC) and the HTML cover — must not be interleaved as text.
@@ -221,8 +279,9 @@ def _convert_epub(path: Path) -> str:
         if item_id in seen:
             return
         seen.add(item_id)
-        html = item.get_content().decode("utf-8", errors="replace")
-        md = _html_to_markdown(html)
+        with _as_conversion_error(f"ebooklib could not read {item_id} in {path.name}"):
+            html = item.get_content().decode("utf-8", errors="replace")
+        md = _html_to_markdown(html, origin=f"{item_id} in {path.name}")
         if md.strip():
             parts.append(md)
 

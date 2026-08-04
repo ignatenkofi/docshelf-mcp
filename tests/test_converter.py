@@ -4,6 +4,8 @@ The DOCX/HTML/EPUB backends are optional; each test skips cleanly if its
 backend isn't installed (they are in the dev extra, so they run in CI).
 """
 
+import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -217,6 +219,222 @@ def test_pdf_conversion_rejects_a_file_that_is_not_a_pdf(tmp_path: Path):
         source_to_markdown(fake)
 
 
+# --------------------------------------------------------------------------
+# Backend failure must arrive as ConversionError
+#
+# source_to_markdown documents ConversionError as the failure a caller catches
+# ("the backend is missing/fails"). The PDF engines keep that promise; the
+# DOCX/HTML/EPUB paths did not, and let mammoth's zipfile.BadZipFile,
+# ebooklib's EpubException and markdownify's own errors escape raw — so one
+# unreadable file in a directory scan took down the whole run.
+#
+# These tests stub the backends instead of importing them. Not a workaround
+# for a bare container: a stub is the only way to make a *healthy* backend
+# fail on demand, and it keeps the contract under test in environments where
+# the optional extras aren't installed, where importorskip would hand back a
+# green run that verified nothing. The real-backend pair below proves the
+# stubs model something that actually happens.
+# --------------------------------------------------------------------------
+
+_STUB_ITEM_DOCUMENT = 9  # ebooklib's real constant is an int; the stub need only agree with itself
+
+
+class _Boom(Exception):
+    """Stand-in for whatever a backend raises — deliberately not an OSError."""
+
+
+def _stub_module(monkeypatch, name: str, **attrs):
+    mod = types.ModuleType(name)
+    for attr, value in attrs.items():
+        setattr(mod, attr, value)
+    monkeypatch.setitem(sys.modules, name, mod)
+    return mod
+
+
+def _stub_ebooklib(monkeypatch, read_epub):
+    epub_mod = types.ModuleType("ebooklib.epub")
+    epub_mod.read_epub = read_epub
+    _stub_module(monkeypatch, "ebooklib", ITEM_DOCUMENT=_STUB_ITEM_DOCUMENT, epub=epub_mod)
+    monkeypatch.setitem(sys.modules, "ebooklib.epub", epub_mod)
+
+
+class _StubChapter:
+    def __init__(self, content=b"<p>body</p>", boom=None):
+        self._content = content
+        self._boom = boom
+
+    def get_type(self):
+        return _STUB_ITEM_DOCUMENT
+
+    def get_id(self):
+        return "ch1"
+
+    def get_content(self):
+        if self._boom is not None:
+            raise self._boom
+        return self._content
+
+
+class _StubBook:
+    def __init__(self, item):
+        self._item = item
+        self.spine = [("ch1", "yes")]
+
+    def get_item_with_id(self, idref):
+        return self._item
+
+    def get_items(self):
+        return [self._item]
+
+
+def _failing_docx(monkeypatch, tmp_path: Path, boom: Exception) -> Path:
+    def convert_to_markdown(fileobj):
+        raise boom
+
+    _stub_module(monkeypatch, "mammoth", convert_to_markdown=convert_to_markdown)
+    src = tmp_path / "report.docx"
+    src.write_bytes(b"PK\x03\x04 pretend")
+    return src
+
+
+def _failing_markdownify_html(monkeypatch, tmp_path: Path, boom: Exception) -> Path:
+    def markdownify(html, **kwargs):
+        raise boom
+
+    _stub_module(monkeypatch, "markdownify", markdownify=markdownify)
+    src = tmp_path / "page.html"
+    src.write_text("<p>hi</p>", encoding="utf-8")
+    return src
+
+
+def _failing_epub_open(monkeypatch, tmp_path: Path, boom: Exception) -> Path:
+    def read_epub(path):
+        raise boom
+
+    _stub_ebooklib(monkeypatch, read_epub)
+    src = tmp_path / "book.epub"
+    src.write_bytes(b"PK\x03\x04 pretend")
+    return src
+
+
+def _failing_epub_chapter(monkeypatch, tmp_path: Path, boom: Exception) -> Path:
+    _stub_ebooklib(monkeypatch, lambda path: _StubBook(_StubChapter(boom=boom)))
+    src = tmp_path / "book.epub"
+    src.write_bytes(b"PK\x03\x04 pretend")
+    return src
+
+
+def _failing_markdownify_epub(monkeypatch, tmp_path: Path, boom: Exception) -> Path:
+    def markdownify(html, **kwargs):
+        raise boom
+
+    _stub_module(monkeypatch, "markdownify", markdownify=markdownify)
+    _stub_ebooklib(monkeypatch, lambda path: _StubBook(_StubChapter()))
+    src = tmp_path / "book.epub"
+    src.write_bytes(b"PK\x03\x04 pretend")
+    return src
+
+
+@pytest.mark.parametrize(
+    "arrange",
+    [
+        _failing_docx,
+        _failing_markdownify_html,
+        _failing_epub_open,
+        _failing_epub_chapter,
+        _failing_markdownify_epub,
+    ],
+    ids=[
+        "docx: mammoth raises",
+        "html: markdownify raises",
+        "epub: read_epub raises",
+        "epub: chapter content raises",
+        "epub: markdownify raises on a chapter",
+    ],
+)
+def test_backend_failure_becomes_conversion_error(monkeypatch, tmp_path: Path, arrange):
+    boom = _Boom("engine exploded")
+    src = arrange(monkeypatch, tmp_path, boom)
+
+    with pytest.raises(ConversionError) as exc:
+        source_to_markdown(src)
+
+    # Chained, not swallowed: the backend detail must survive the translation,
+    # or the wrap trades one unusable error for another.
+    assert exc.value.__cause__ is boom, "the backend's own exception must be the __cause__"
+    assert "engine exploded" in str(exc.value)
+
+
+def test_epub_chapter_failure_is_not_wrapped_twice(monkeypatch, tmp_path: Path):
+    """_html_to_markdown is shared by the html and epub paths — wrap it once.
+
+    The epub path calls it per chapter. If both the shared helper and the epub
+    caller wrapped, the real failure would land at `__cause__.__cause__`, one
+    level below where anyone (including the assertion above) looks, and the
+    message would read as a conversion error caused by a conversion error.
+    """
+    boom = _Boom("engine exploded")
+    src = _failing_markdownify_epub(monkeypatch, tmp_path, boom)
+
+    with pytest.raises(ConversionError) as exc:
+        source_to_markdown(src)
+
+    assert not isinstance(exc.value.__cause__, ConversionError), (
+        "double-wrapped: a ConversionError caused by a ConversionError"
+    )
+
+
+def test_unreadable_html_source_becomes_conversion_error(tmp_path: Path):
+    """A directory wearing an .html name — exists, is not readable as text.
+
+    Needs no backend at all: the read happens before markdownify is even
+    imported, so this one runs everywhere and covers the read that
+    `_convert_html` used to leave bare (it escaped as IsADirectoryError).
+    """
+    src = tmp_path / "page.html"
+    src.mkdir()
+
+    with pytest.raises(ConversionError):
+        source_to_markdown(src)
+
+
+def test_missing_docx_stays_file_not_found(monkeypatch, tmp_path: Path):
+    """FileNotFoundError is deliberately NOT folded into ConversionError.
+
+    source_to_markdown documents the two as separate outcomes, and they mean
+    different things to a caller: "that path does not exist" is fixed by
+    passing a different path, "the backend could not read this file" is not.
+    _convert_docx opens the file *inside* the wrap, so this is the path where
+    the distinction could most easily have been lost.
+    """
+    from docshelf_mcp.core.converter import _convert_docx
+
+    _stub_module(monkeypatch, "mammoth", convert_to_markdown=lambda fh: None)
+
+    with pytest.raises(FileNotFoundError):
+        _convert_docx(tmp_path / "gone.docx")
+
+
+def test_real_mammoth_failure_becomes_conversion_error(tmp_path: Path):
+    """The stubs above, against the actual library (mammoth raises BadZipFile)."""
+    pytest.importorskip("mammoth")
+    src = tmp_path / "not-really.docx"
+    src.write_text("plain text wearing a .docx name", encoding="utf-8")
+
+    with pytest.raises(ConversionError):
+        source_to_markdown(src)
+
+
+def test_real_ebooklib_failure_becomes_conversion_error(tmp_path: Path):
+    """Same, for ebooklib (which raises its own EpubException)."""
+    pytest.importorskip("ebooklib")
+    src = tmp_path / "not-really.epub"
+    src.write_text("plain text wearing an .epub name", encoding="utf-8")
+
+    with pytest.raises(ConversionError):
+        source_to_markdown(src)
+
+
 def test_absent_marker_says_install_it(monkeypatch):
     """The plain case must keep its actionable install hint."""
     import importlib.util as _iu
@@ -254,3 +472,4 @@ def test_incompatible_marker_is_not_reported_as_missing(monkeypatch):
     assert "2.0.0" in msg, "installed version must be named — it is the whole diagnosis"
     assert "version mismatch" in msg
     assert "PdfConverter" in msg, "the underlying ImportError must survive into the message"
+
