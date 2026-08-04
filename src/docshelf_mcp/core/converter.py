@@ -15,6 +15,8 @@ pull in PyMuPDF or marker until you actually call :func:`pdf_to_markdown`.
 
 from __future__ import annotations
 
+import importlib.util
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Literal
 
@@ -60,7 +62,56 @@ def _convert_fast(pdf_path: Path) -> str:
             "Install it with: pip install pymupdf4llm"
         ) from exc
 
-    return pymupdf4llm.to_markdown(str(pdf_path))
+    try:
+        return pymupdf4llm.to_markdown(str(pdf_path))
+    except Exception as exc:  # noqa: BLE001 — the engine's exception type is its own
+        # The docstring on pdf_to_markdown promises ConversionError "if the
+        # requested engine is missing or fails", and only the *missing* half
+        # was true: a damaged or mislabelled PDF surfaced as
+        # pymupdf.FileDataError, so a caller following the documented contract
+        # never caught it. The cause is chained, so the backend detail is one
+        # `__cause__` away rather than lost.
+        raise ConversionError(f"pymupdf4llm could not read {pdf_path.name}: {exc}") from exc
+
+
+_MARKER_ABSENT = (
+    "marker-pdf is required for quality='high' but is not installed. "
+    "Install it with: pip install 'docshelf-mcp[high-quality]' or "
+    "pip install marker-pdf. Note: marker-pdf pulls in PyTorch (~2 GB)."
+)
+
+
+def _marker_import_message(exc: ImportError) -> str:
+    """"Not installed" and "installed but incompatible" are different problems.
+
+    They arrive as the same ``ImportError``, and reporting both as the first
+    sends the reader to reinstall a package that is already there — the
+    install succeeds, the message repeats, and the real cause stays hidden.
+
+    Not hypothetical: the ``high-quality`` extra declared ``marker-pdf>=1.0.0``
+    with no upper bound while marker-pdf 2.0.0 was already released, so a fresh
+    install pulled a major this code has never run against. The bound is fixed
+    in ``pyproject.toml``; existing environments resolved before the fix still
+    carry 2.x, and this is what they will see.
+    """
+    try:
+        present = importlib.util.find_spec("marker") is not None
+    except (ImportError, ValueError):
+        # A half-installed or broken parent package: treat as absent rather
+        # than letting the probe raise over the original failure.
+        present = False
+    if not present:
+        return _MARKER_ABSENT
+    try:
+        installed = version("marker-pdf")
+    except PackageNotFoundError:
+        installed = "unknown"
+    return (
+        f"marker-pdf is installed (version {installed}) but does not expose the API "
+        f"docshelf-mcp uses: {exc}. This is a version mismatch, not a missing package — "
+        "reinstalling will not help. docshelf-mcp is tested against marker-pdf 1.x; "
+        "pin it with: pip install 'marker-pdf>=1.0,<2'."
+    )
 
 
 def _convert_high(pdf_path: Path) -> str:
@@ -69,16 +120,15 @@ def _convert_high(pdf_path: Path) -> str:
         from marker.models import create_model_dict  # type: ignore[import-not-found]
         from marker.output import text_from_rendered  # type: ignore[import-not-found]
     except ImportError as exc:
-        raise ConversionError(
-            "marker-pdf is required for quality='high' but is not installed. "
-            "Install it with: pip install 'docshelf-mcp[high-quality]' or "
-            "pip install marker-pdf. Note: marker-pdf pulls in PyTorch (~2 GB)."
-        ) from exc
+        raise ConversionError(_marker_import_message(exc)) from exc
 
-    converter = PdfConverter(artifact_dict=create_model_dict())
-    rendered = converter(str(pdf_path))
-    text, _, _ = text_from_rendered(rendered)
-    return text
+    try:
+        converter = PdfConverter(artifact_dict=create_model_dict())
+        rendered = converter(str(pdf_path))
+        text, _, _ = text_from_rendered(rendered)
+        return text
+    except Exception as exc:  # noqa: BLE001 — same contract as the fast path
+        raise ConversionError(f"marker-pdf could not read {pdf_path.name}: {exc}") from exc
 
 
 def pdf_to_markdown(pdf_path: Path | str, quality: Quality = "fast") -> str:

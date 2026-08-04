@@ -20,7 +20,7 @@
 
 docshelf proved that a large *document* collection can live outside the
 context window behind a 5 KB index (measured: [~3.7K tokens vs 1.2M per
-question](../demo.md)). **memshelf applies the same pattern to the agent's
+question](../../demo.md)). **memshelf applies the same pattern to the agent's
 own working memory**: long conversations, research dumps, and bulky tool
 output are periodically offloaded to a shelf as Markdown "episodes", each
 replaced in live context by a short digest plus an INDEX entry. When the
