@@ -32,7 +32,7 @@ is not specific to documents. It works for anything that can be serialized to
 Markdown and addressed by a stable path. The agent's own memory qualifies.
 
 The economics are already measured on the document side:
-[docshelf's benchmark](../demo.md) shows ~3.7K tokens per answered question vs
+[docshelf's benchmark](../../demo.md) shows ~3.7K tokens per answered question vs
 1.2M for dumping the collection. memshelf inherits that math; the only new
 costs are the one-time digest written at offload time and the occasional
 recall fetch.
