@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-08-04
+
 ### Added
 - **The PDF path finally has a test that converts a PDF.** Until now the suite
   touched PDFs only through invalid ones (`not a pdf` written to a `.pdf`
@@ -29,6 +31,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and looking covered while validating nothing. The committed candidate
   manifest `tests/fixtures/conformance.shelf.yml` stands in until `init`
   emits a `shelf.yml` itself.
+
+- **Failure-path tests for the DOCX/HTML/EPUB backends**, which had none — the
+  suite covered only successful conversions, so the contract breakage fixed
+  below had nothing to trip over. Eleven tests: five backend failure shapes,
+  the double-wrap guard on the shared HTML helper, the `FileNotFoundError`
+  boundary, and the marker dependency case.
+
+  Nine of them stub the backend rather than importing it. That is not a
+  concession to bare containers: a stub is the only way to make a *healthy*
+  backend fail on demand, and it keeps the contract under test where the
+  optional extras aren't installed — `importorskip` there hands back a green
+  run that verified nothing. Two more run against real mammoth and ebooklib,
+  proving the stubs model failures that actually happen.
 
 ### Changed
 - **The `pymupdf4llm` ceiling could not fire, and that is the same defect the
@@ -100,6 +115,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   or mislabelled PDF surfaced as `pymupdf.FileDataError`, so a caller following
   the documented contract never caught it. Both engines now wrap their failure,
   chaining the cause so the backend detail is one `__cause__` away.
+
+- **The same broken promise, in the three backends the PDF fix did not reach.**
+  `source_to_markdown` makes the identical guarantee ("the backend is
+  missing/fails" → `ConversionError`), and only its *missing* half was true for
+  DOCX/HTML/EPUB: mammoth's `zipfile.BadZipFile` on a mislabelled file,
+  ebooklib's `EpubException` on a corrupt archive, an unreadable HTML source's
+  `IsADirectoryError`, and markdownify's own errors all escaped raw. In a
+  directory scan that is the difference between one document being skipped and
+  the whole run dying. All five sites now translate, chaining the cause.
+
+  `_html_to_markdown` is shared by the html and epub paths and is wrapped
+  once, inside itself — so an epub chapter is not wrapped twice with the real
+  failure buried at `__cause__.__cause__`, and neither path is left uncovered.
+  Failures now name what they were reading (`markdownify could not convert ch7
+  in book.epub`), which in a 600-page EPUB is the difference between a
+  diagnosis and a shrug.
+
+  `FileNotFoundError` deliberately still escapes as itself: the docstring
+  documents it as a separate outcome, and "that path does not exist" is fixed
+  by passing a different path while "the backend could not read this file" is
+  not. Every other `OSError` is a conversion failure and is wrapped.
+
+- **A broken marker-pdf *dependency* was reported as an incompatible
+  marker-pdf.** The `find_spec` split above answers "is marker there at all",
+  which is a different question from "what failed to import" — and marker's
+  import tree reaches far past marker, into PyTorch and the stack behind it.
+  A missing or half-installed one of those raises from inside `from
+  marker.converters.pdf import ...` exactly where a moved marker API would,
+  and every clause of the version-mismatch advice was then false: the
+  installed marker-pdf was inside the tested range, nothing was mismatched,
+  and reinstalling — "will not help", said the message — was the one thing
+  that would have. The reader was sent to pin a package that was never the
+  problem while the module that actually failed went unnamed. The handler now
+  reads `ImportError.name`, which the import machinery sets for every shape it
+  raises, and anything outside marker's own namespace is reported as the
+  dependency problem it is, named.
 
 - **The wire-timeout test could pass with the timeout dead.** It asserted only
   that *something* was raised, so when the 2.x port turned a `timedelta` cap
