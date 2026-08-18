@@ -162,8 +162,12 @@ The shelf files are **also** exposed as read-only MCP resources, so a client can
 
 ```bash
 claude mcp add docshelf -- docshelf-mcp
-# Optional: set the default shelf
-claude mcp add docshelf --env DOCSHELF_ROOT=/path/to/shelf -- docshelf-mcp
+
+# Optional: pin a default shelf for this server
+printf 'Path to your docshelf shelf: '; read -r shelf
+shelf=${shelf/#\~/$HOME}                  # read does not expand a typed ~
+shelf=$(cd "$shelf" && pwd) || exit 1     # absolute, and fails loudly if absent
+claude mcp add docshelf --env DOCSHELF_ROOT="$shelf" -- docshelf-mcp
 ```
 
 ### 3. Test from the command line
