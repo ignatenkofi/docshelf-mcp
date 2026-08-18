@@ -64,10 +64,13 @@ Claude Desktop config snippet:
 }
 ```
 
-Claude Code one-liner:
+Claude Code:
 
 ```bash
-claude mcp add docshelf --env DOCSHELF_ROOT=/path/to/shelf -- docshelf-mcp
+printf 'Path to your docshelf shelf: '; read -r shelf
+shelf=${shelf/#\~/$HOME}                  # read does not expand a typed ~
+shelf=$(cd "$shelf" && pwd) || exit 1     # absolute, and fails loudly if absent
+claude mcp add docshelf --env DOCSHELF_ROOT="$shelf" -- docshelf-mcp
 ```
 
 ## Sample tool use
