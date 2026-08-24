@@ -16,9 +16,12 @@ A shelf is a directory shaped like::
     │       └── seasonic-gx-1000.md
     └── .gitignore
 
-This module never invokes git directly — the user (or the caller) is in
-charge of staging, committing, and pushing. The shelf only manages the
-disk state.
+This module never writes to git — the user (or the caller) stays in charge of
+staging, committing, and pushing, and the shelf only manages the disk state.
+The one exception is a read: ``doctor`` asks ``core.gitstate`` what git tracks,
+because "this directory exists only in your working copy" (#97) has no
+filesystem answer and the wrong diagnosis there costs the caller a commit full
+of dead links.
 """
 
 from __future__ import annotations
@@ -40,6 +43,7 @@ from docshelf_mcp.core.converter import (
     source_to_markdown,
 )
 from docshelf_mcp.core.fsutil import atomic_write_text
+from docshelf_mcp.core.gitstate import uncommitted_split_dirs
 from docshelf_mcp.core.indexer import (
     DEFAULT_PREAMBLE,
     DEFAULT_SUBINDEX_THRESHOLD,
@@ -1125,12 +1129,20 @@ class Shelf:
         """Check the shelf for drift and (optionally) apply the safe fixes.
 
         Detects: stale ``.meta.json`` entries, orphaned split directories,
-        split sections out of sync with their parent document, a stale
-        ``INDEX.md``, duplicate titles within a category, and empty
-        categories. With ``fix=True`` the *safe* subset is applied — prune
-        stale meta entries, delete orphaned split dirs, and rebuild the index
-        — and those findings are marked ``fixed``. Everything else is
-        report-only. Findings are returned sorted for stable diffing.
+        split sections out of sync with their parent document, split sections
+        git does not track, a stale ``INDEX.md``, duplicate titles within a
+        category, and empty categories. With ``fix=True`` the *safe* subset is
+        applied — prune stale meta entries, delete orphaned split dirs, and
+        rebuild the index — and those findings are marked ``fixed``.
+        Everything else is report-only. Findings are returned sorted for stable
+        diffing.
+
+        Uncommitted split directories suppress both the ``stale-index`` finding
+        and the rebuild (#97): while they are there the index on disk and a
+        render of the working tree describe different trees, so "out of date"
+        is the wrong name for the difference and rebuilding publishes links no
+        other checkout has. ``uncommitted-split-dir`` names the real choice
+        instead, and once it is acted on the index check applies again.
         """
         import shutil
 
@@ -1311,10 +1323,30 @@ class Shelf:
                     "align .docshelf.json with shelf.yml — the manifest is the "
                     "contract"))
 
-        # stale-index: INDEX.md content differs from a fresh render.
+        # uncommitted-split-dir: sections that exist only in this working copy
+        # (#97). They are shelf content to scan(), which walks the filesystem,
+        # and content to nobody else — so an index rendered here cannot equal
+        # one rendered from the committed tree, and `rebuild_index` publishes
+        # links no other checkout can follow. This used to be reported as a
+        # permanent `stale-index` with a fix that made things worse.
+        uncommitted = uncommitted_split_dirs(self.root)
+        for rel_dir in uncommitted:
+            findings.append(DoctorFinding(
+                "uncommitted-split-dir", "warning", rel_dir,
+                "split sections are not committed — they exist only in this "
+                "working copy, so INDEX and search rendered here cannot match "
+                "any other checkout",
+                "commit the directory, or delete it and re-add the document "
+                "with split=False — the sections are a copy of the parent, "
+                "which keeps all of them"))
+
+        # stale-index: INDEX.md content differs from a fresh render. Only
+        # meaningful when both sides describe the same tree: with uncommitted
+        # sections around, the difference is the finding above, and calling it
+        # "out of date" would be the same lie in a shorter form.
         index_path = self.root / "INDEX.md"
         current = index_path.read_text(encoding="utf-8") if index_path.is_file() else None
-        if current != self._index_text(self.scan()):
+        if not uncommitted and current != self._index_text(self.scan()):
             f = DoctorFinding(
                 "stale-index", "warning", "INDEX.md",
                 "INDEX.md is out of date with the shelf contents",
@@ -1323,7 +1355,10 @@ class Shelf:
                 f.fixed = True
             findings.append(f)
 
-        if fix and (structural_fix or any(
+        # The rebuild is suppressed for the same reason the hint is: it writes
+        # the dead links itself, and doing that under `fix=True` — where the
+        # caller asked for the *safe* subset — is worse than reporting.
+        if fix and not uncommitted and (structural_fix or any(
                 x.rule == "stale-index" for x in findings)):
             self.rebuild_index()
 
