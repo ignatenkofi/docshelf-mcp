@@ -2,6 +2,7 @@
 (no PDF dependency required)."""
 
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -944,6 +945,109 @@ def test_doctor_detects_stale_index(tmp_path: Path):
     assert any(f.rule == "stale-index" for f in shelf.doctor())
     shelf.doctor(fix=True)
     assert not any(f.rule == "stale-index" for f in shelf.doctor())
+
+
+def _git(root: Path, *args: str) -> subprocess.CompletedProcess:
+    # Identity via -c so the test never depends on the host's git config and
+    # never writes to it.
+    return subprocess.run(
+        [
+            "git", "-C", str(root),
+            "-c", "user.name=docshelf test",
+            "-c", "user.email=test@docshelf.invalid",
+            "-c", "commit.gpgsign=false",
+            *args,
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+
+def _split_shelf_with_uncommitted_sections(tmp_path: Path) -> tuple[Shelf, Path]:
+    """A git shelf whose split directory was never committed, INDEX from the bot.
+
+    This is the shape #97 was filed about: the caller commits the document path
+    alone (memshelf's ``shelve`` does exactly that), and ``INDEX.md`` is
+    rendered on ``main`` from the *committed* tree — so the file on disk and a
+    render of the working tree are two structurally different trees.
+    """
+    big_md = tmp_path / "big.md"
+    chapter_body = "Lorem ipsum dolor sit amet. " * 500
+    big_md.write_text(
+        "# Title\n\n"
+        + "\n\n".join(f"## Section {i}\n\n{chapter_body}" for i in range(5)),
+        encoding="utf-8",
+    )
+
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    _git(shelf.root, "init", "-q", "-b", "main")
+    _git(shelf.root, "add", "-A")
+    _git(shelf.root, "commit", "-qm", "shelf")
+
+    added = shelf.add_document(big_md, category="big", title="Doc", split=True)
+    assert added.was_split
+    split_dir = added.document_path.parent / added.document_path.stem
+    assert split_dir.is_dir()
+
+    # The caller commits the document alone — the sections stay untracked.
+    _git(shelf.root, "add", "--", str(added.document_path.relative_to(shelf.root)))
+    _git(shelf.root, "commit", "-qm", "doc")
+
+    # INDEX.md as the bot renders it: from a checkout that has no sections.
+    clone = tmp_path / "bot"
+    subprocess.run(
+        ["git", "clone", "-q", str(shelf.root), str(clone)], check=True, capture_output=True
+    )
+    Shelf(clone).rebuild_index()
+    (shelf.root / "INDEX.md").write_text(
+        (clone / "INDEX.md").read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    return shelf, split_dir
+
+
+def test_doctor_names_uncommitted_split_dirs_instead_of_prescribing_rebuild(
+    tmp_path: Path,
+):
+    # #97: the two sides of the stale-index comparison are structurally
+    # different trees here, so no rebuild can make them equal — and running the
+    # prescribed one publishes INDEX links to paths no other checkout has.
+    shelf, split_dir = _split_shelf_with_uncommitted_sections(tmp_path)
+    rel = split_dir.relative_to(shelf.root).as_posix()
+
+    report = shelf.doctor()
+    rules = {f.rule for f in report}
+    assert "uncommitted-split-dir" in rules
+    assert rel in {f.path for f in report if f.rule == "uncommitted-split-dir"}
+    # The permanent warning is gone: this is not a lagging index.
+    assert "stale-index" not in rules
+    # And nothing in the report sends the reader at rebuild_index.
+    assert all("rebuild_index" not in f.suggested_fix for f in report)
+
+    # Even with fix=True the index is left alone — the broken links are exactly
+    # what the finding exists to prevent.
+    before = (shelf.root / "INDEX.md").read_text(encoding="utf-8")
+    shelf.doctor(fix=True)
+    after = (shelf.root / "INDEX.md").read_text(encoding="utf-8")
+    assert after == before
+    assert rel not in after
+
+
+def test_doctor_leaves_committed_split_dirs_alone(tmp_path: Path):
+    # A shelf that committed its sections is coherent — every checkout has
+    # them — so the finding must not fire, and a genuinely lagging index there
+    # is still reported as stale-index with its usual fix.
+    shelf, split_dir = _split_shelf_with_uncommitted_sections(tmp_path)
+    _git(shelf.root, "add", "-A")
+    _git(shelf.root, "commit", "-qm", "sections too")
+
+    rules = {f.rule for f in shelf.doctor()}
+    assert "uncommitted-split-dir" not in rules
+    assert "stale-index" in rules  # INDEX still carries the bot's render
+    assert any(
+        f.rule == "stale-index" and f.suggested_fix == "run rebuild_index"
+        for f in shelf.doctor()
+    )
 
 
 def test_doctor_detects_empty_category_and_duplicate_title(tmp_path: Path):

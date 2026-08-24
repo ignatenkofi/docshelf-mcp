@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`doctor` no longer prescribes an action that publishes dead links** (#97).
+  The `stale-index` finding compared `INDEX.md` on disk against a render of the
+  *working tree* — and `scan()` walks the filesystem, so split directories that
+  git does not track counted as shelf content. On a shelf whose caller commits
+  the document path alone, the two sides of that comparison are structurally
+  different trees: no rebuild can make them equal, the warning returns with the
+  next render from the committed tree, and following the prescribed
+  `run rebuild_index` writes INDEX links to files no other checkout has.
+  Measured on the reproduction: 6 INDEX lines pointing into a directory with
+  `git ls-files` returning 0 paths.
+
+  Such sections are now reported as `uncommitted-split-dir`, naming the actual
+  choice (commit them, or drop them and re-add with `split=False`). While the
+  finding is present, `stale-index` is not raised and `fix=True` does not
+  rebuild the index. A shelf that committed its sections, and a shelf that is
+  not a git repository, are unaffected — and an index that has simply fallen
+  behind is still `stale-index` with `run rebuild_index`, as before.
+
+  The one git call this needs is a read (`git ls-files`), in the new
+  `core.gitstate`; docshelf still never stages, commits or pushes.
+
 ## [0.4.0] — 2026-08-04
 
 ### Added
