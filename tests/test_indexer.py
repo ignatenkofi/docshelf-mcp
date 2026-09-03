@@ -294,6 +294,44 @@ def test_build_index_none_provider_relative_links():
     assert "raw.githubusercontent.com" not in out
 
 
+def test_build_index_entry_links_title_and_prints_filename_once():
+    """The title is the link text; the filename appears only inside the URL (#96).
+
+    The old shape was ``- **Title** — desc — [`file.md`](…/file.md)``: the
+    label repeated the URL's last segment on every line, ~16% of a real
+    INDEX.md, injected into every session. Asserted by counting the filename
+    rather than matching one exact line, so a renderer that moved the label
+    somewhere else could not pass by accident.
+    """
+    entries = [
+        DocumentEntry(
+            "routers", "Mikrotik Router", "Manual", "docs/routers/mikrotik.md", 2048
+        ),
+    ]
+    out = build_index("S", entries, remote="https://github.com/me/r")
+    line = next(ln for ln in out.splitlines() if "Mikrotik Router" in ln)
+
+    assert line == (
+        "- [**Mikrotik Router**]"
+        "(https://raw.githubusercontent.com/me/r/main/docs/routers/mikrotik.md)"
+        " — Manual"
+    )
+    assert line.count("mikrotik.md") == 1
+    assert "`mikrotik.md`" not in out
+
+
+def test_build_index_entry_without_url_keeps_filename_label():
+    """No URL means nothing to link to, so the filename stays as the handle."""
+    entries = [
+        DocumentEntry("routers", "R", "Manual", "docs/routers/r.md", 2048),
+    ]
+    # gitlab without a parseable remote cannot build a URL (see
+    # test_shelf_url_empty_when_unbuildable).
+    out = build_index("S", entries, provider="gitlab")
+    assert "- **R** — Manual — `r.md`" in out
+    assert "](" not in out.split("## Routers")[1].split("---")[0]
+
+
 def test_build_subindex_gitlab_provider():
     entry = DocumentEntry(
         "routers", "R", "", "docs/routers/r.md", 4000,

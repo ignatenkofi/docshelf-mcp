@@ -553,7 +553,16 @@ def _render_entry(
     desc_suffix = f" — {desc}" if desc else ""
 
     if not entry.section_paths:
-        lines.append(f"- **{entry.title}**{desc_suffix} — {full_link}")
+        # The title is the link text, not the filename (#96). The filename is
+        # already the last segment of the URL, so a `filename` label printed
+        # it twice on every entry — measured at ~16% of a real INDEX, paid
+        # per session because INDEX.md is what gets injected. Without a URL
+        # there is nothing to link to, so the filename stays as the one
+        # handle the reader has.
+        if url:
+            lines.append(f"- [**{entry.title}**]({url}){desc_suffix}")
+        else:
+            lines.append(f"- **{entry.title}**{desc_suffix} — {label}")
         return
 
     use_subindex = index_style == "subindex" or (

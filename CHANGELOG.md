@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **INDEX entries no longer print their filename twice** (#96). A non-split
+  entry was rendered as ``- **Title** — description — [`file.md`](…/file.md)``:
+  the label repeated the last segment of the URL on every line. On a real
+  112-entry shelf the links were 32% of INDEX.md and about half of that was
+  the duplicated filename — ~16% of a file that is injected into every
+  session. The title is now the link text
+  (``- [**Title**](…/file.md) — description``); the filename is still in the
+  URL and still copy-pasteable for a targeted fetch. Measured on the same
+  shelf: 9 242 → 7 929 tokens, descriptions untouched. Split documents,
+  `SUBINDEX.md` and `index_style` are unchanged; an entry without a
+  resolvable URL keeps the filename as its only handle.
+
 ## [0.4.1] — 2026-08-24
 
 ### Fixed
