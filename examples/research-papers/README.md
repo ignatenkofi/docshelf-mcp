@@ -39,7 +39,7 @@ shelf.add_document(
     category="diffusion",
     title="Denoising Diffusion Probabilistic Models",
     description="Ho et al., 2020. DDPM training objective.",
-    quality="fast",  # default; pymupdf4llm
+    quality="fast",  # default; pymupdf4llm — requires `pip install docshelf-mcp[pdf]`
 )
 ```
 

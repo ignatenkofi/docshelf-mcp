@@ -32,7 +32,7 @@ You have 30 hardware manuals, or 200 cooking recipes, or a stack of research PDF
 
 **docshelf-mcp** turns any folder of documents into a navigable shelf:
 
-1. **Convert** — PDFs → clean Markdown via `pymupdf4llm`.
+1. **Convert** — PDFs → clean Markdown via `pymupdf4llm` (the `pdf` extra).
 2. **Split** — large manuals split by chapter into 1–10 KB sections.
 3. **Index** — auto-generated `INDEX.md` lists every document with raw GitHub URLs.
 4. **Fetch on demand** — AI reads the small index, then fetches only the section it needs over HTTPS.
@@ -44,7 +44,8 @@ You drop the 5 KB `INDEX.md` into your AI project. The 50 MB of source stays on 
 ## Install
 
 ```bash
-pip install docshelf-mcp
+pip install docshelf-mcp            # Markdown shelves
+pip install "docshelf-mcp[pdf]"     # + PDF conversion (pymupdf4llm)
 ```
 
 Or via Smithery-style MCP config in your Claude Desktop:

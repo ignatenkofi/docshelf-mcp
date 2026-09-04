@@ -42,27 +42,39 @@ dependencies = [
     # here (#88 — the published 0.3.0 declares `mcp>=1.2.0` and does not start
     # on a fresh install).
     "pydantic>=2.6,<3",
-    # Floor at 1.0, not the historical 0.0.17: the conversion path had no test
-    # at all until tests/test_converter.py grew one, so "0.0.17 works" was
-    # never anything but a claim. What CI actually verifies is whatever pip
-    # resolves under this range — the 1.x line. The 0.0.x line is a different
-    # major, two years old, and verified by nothing.
-    #
-    # Ceiling on the MINOR, not the major, and that is not sloppiness: this
-    # package does not use semver. It went 0.3.4 -> 1.27.2.1, adopting PyMuPDF's
-    # version numbers wholesale, so its breaking changes ride in the minor
-    # position (1.27 -> 1.28) and the major only moves when PyMuPDF's does.
-    # A `<2` bound here could not fire for anything pymupdf4llm actually does —
-    # it would be a guard incapable of failing, which is the exact defect the
-    # rest of these bounds exist to prevent. Each minor bump arrives as a
-    # dependabot PR, and the PDF conversion test is what judges it.
-    "pymupdf4llm>=1.0,<1.29",
+    # No PDF engine here (#93). pymupdf4llm lives in the `pdf` extra below:
+    # core.converter already imported it lazily and already told the user how
+    # to install it, so the only thing a core pin did was make that branch
+    # unreachable — and charge every consumer the ~260 MB pymupdf chain
+    # (pymupdf-layout, pymupdf, onnxruntime, numpy, …), including the ones
+    # that only ever import core.shelf and never see a PDF.
     # shelf.yml (shelf-spec v0 manifest) scaffolding + doctor's
     # docshelf-config-conflict reconciliation read/write YAML (#63).
     "pyyaml>=6.0,<7",
 ]
 
 [project.optional-dependencies]
+# The default PDF engine (`quality="fast"`). Was a core dependency until
+# 0.4.1; moved out because the code already treated it as optional and a
+# Markdown-only consumer paid ~260 MB for a branch it never reached (#93).
+#
+# Floor at 1.0, not the historical 0.0.17: the conversion path had no test
+# at all until tests/test_converter.py grew one, so "0.0.17 works" was
+# never anything but a claim. What CI actually verifies is whatever pip
+# resolves under this range — the 1.x line. The 0.0.x line is a different
+# major, two years old, and verified by nothing.
+#
+# Ceiling on the MINOR, not the major, and that is not sloppiness: this
+# package does not use semver. It went 0.3.4 -> 1.27.2.1, adopting PyMuPDF's
+# version numbers wholesale, so its breaking changes ride in the minor
+# position (1.27 -> 1.28) and the major only moves when PyMuPDF's does.
+# A `<2` bound here could not fire for anything pymupdf4llm actually does —
+# it would be a guard incapable of failing, which is the exact defect the
+# rest of these bounds exist to prevent. Each minor bump arrives as a
+# dependabot PR, and the PDF conversion test is what judges it.
+pdf = [
+    "pymupdf4llm>=1.0,<1.29",
+]
 high-quality = [
     "marker-pdf>=1.0.0,<2",
 ]
@@ -77,6 +89,7 @@ epub = [
     "markdownify>=0.11,<2",
 ]
 formats = [
+    "pymupdf4llm>=1.0,<1.29",
     "mammoth>=1.6,<2",
     "markdownify>=0.11,<2",
     "ebooklib>=0.18,<1",
@@ -86,8 +99,11 @@ dev = [
     "pytest-asyncio>=0.23",
     "pytest-cov>=5.0",
     "ruff>=0.5.0",
-    # Format backends + a .docx fixture builder, so the DOCX/HTML/EPUB
-    # conversion tests run in CI.
+    # Format backends + a .docx fixture builder, so the PDF/DOCX/HTML/EPUB
+    # conversion tests run in CI. pymupdf4llm must stay here: the PDF tests
+    # importorskip it, so leaving it out would not fail CI — it would turn
+    # the package's headline test into a green skip (#93).
+    "pymupdf4llm>=1.0,<1.29",
     "mammoth>=1.6,<2",
     "markdownify>=0.11,<2",
     "ebooklib>=0.18,<1",

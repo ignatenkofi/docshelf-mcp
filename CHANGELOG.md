@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **INDEX entries no longer print their filename twice** (#96). A non-split
+  entry was rendered as ``- **Title** — description — [`file.md`](…/file.md)``:
+  the label repeated the last segment of the URL on every line. On a real
+  112-entry shelf the links were 32% of INDEX.md and about half of that was
+  the duplicated filename — ~16% of a file that is injected into every
+  session. The title is now the link text
+  (``- [**Title**](…/file.md) — description``); the filename is still in the
+  URL and still copy-pasteable for a targeted fetch. Measured on the same
+  shelf: 9 242 → 7 929 tokens, descriptions untouched. Split documents,
+  `SUBINDEX.md` and `index_style` are unchanged; an entry without a
+  resolvable URL keeps the filename as its only handle.
+
+- **`pymupdf4llm` is no longer a core dependency — it is the `pdf` extra**
+  (#93). `core.converter` already imported it lazily and already raised a
+  `ConversionError` telling the user how to install it, but `pyproject.toml`
+  declared it under `[project] dependencies`, so that branch was unreachable
+  and every consumer paid for the whole PyMuPDF chain (pymupdf-layout,
+  pymupdf, onnxruntime, numpy, …: 108 MB of wheels, ~260 MB installed) —
+  including one that only imports `core.shelf` and never sees a PDF. Every
+  other format handler was already an extra; PDF was the odd one out, and it
+  was the *lazy* engine that was mandatory while the heavy one (`marker-pdf`)
+  was correctly optional.
+
+  `pip install "docshelf-mcp[pdf]"` restores the previous behaviour;
+  `[formats]` now includes it alongside DOCX/HTML/EPUB, and `[dev]` carries it
+  so the PDF conversion test keeps running in CI — a CI step now asserts the
+  import, because the test would otherwise skip green. The bound is unchanged
+  (`>=1.0,<1.29`). Without the extra, adding a `.pdf` raises
+  `ConversionError: pymupdf4llm is required for quality='fast' but is not
+  installed. Install it with: pip install 'docshelf-mcp[pdf]' …`, and that
+  branch now has a test of its own.
+
+  Release note: this is a **breaking** change for installers — a plain
+  `pip install docshelf-mcp` no longer converts PDFs. The next release is a
+  minor bump (0.5.0), not a patch.
+
 ## [0.4.1] — 2026-08-24
 
 ### Fixed

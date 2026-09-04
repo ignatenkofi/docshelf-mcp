@@ -70,7 +70,7 @@ Full document: [`mikrotik-routeros-full-manual.md`](https://raw.githubuserconten
 
 ## Switch
 
-- **Cudy GS1010PE — quick install** — [`cudy-gs1010pe-quick-install.md`](https://raw.githubusercontent.com/.../switch/cudy-gs1010pe-quick-install.md)
+- [**Cudy GS1010PE — quick install**](https://raw.githubusercontent.com/.../switch/cudy-gs1010pe-quick-install.md)
 ```
 
 ## Then

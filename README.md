@@ -63,16 +63,21 @@ Or straight from `main` (always-latest, no PyPI required):
 pip install "git+https://github.com/ignatenkofi/docshelf-mcp"
 ```
 
+That gives you Markdown shelves. Input formats beyond Markdown are extras —
+pick the ones you ingest:
+
+```bash
+pip install "docshelf-mcp[pdf]"       # PDF via pymupdf4llm (the default engine)
+pip install "docshelf-mcp[formats]"   # PDF + DOCX + HTML + EPUB; or [docx] / [html] / [epub]
+```
+
+The `pdf` extra pulls the PyMuPDF chain (~260 MB installed); a consumer that
+only reads and writes Markdown does not need it, which is why it is not core.
+
 Optional high-quality PDF engine (pulls ~2 GB of PyTorch — only if you need it):
 
 ```bash
 pip install "docshelf-mcp[high-quality]"
-```
-
-Optional input formats beyond PDF/Markdown — DOCX, HTML, EPUB (lightweight):
-
-```bash
-pip install "docshelf-mcp[formats]"   # or [docx] / [html] / [epub]
 ```
 
 ---
@@ -256,7 +261,7 @@ Each example shows the directory layout and the `INDEX.md` you'd end up with.
 
 ## Optional: high-quality PDF conversion
 
-The default engine (`pymupdf4llm`) is fast and good enough for ~95% of technical documents. For papers with complex tables, math, or scanned content, install the `marker-pdf` backend:
+The default engine (`pymupdf4llm`, installed by the `pdf` extra) is fast and good enough for ~95% of technical documents. For papers with complex tables, math, or scanned content, install the `marker-pdf` backend:
 
 ```bash
 pip install "docshelf-mcp[high-quality]"

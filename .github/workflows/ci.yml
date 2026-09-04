@@ -42,7 +42,12 @@ jobs:
         run: ruff check src tests
 
       - name: Run tests
-        run: pytest -v --cov=docshelf_mcp --cov-report=term-missing --cov-fail-under=85
+        run: |
+          # The PDF conversion tests importorskip pymupdf4llm. Since it left
+          # core for the `pdf` extra (#93) it reaches CI only through `dev`;
+          # if that ever dropped, the skips would read green. Fail loudly.
+          python -c "import pymupdf4llm"
+          pytest -v --cov=docshelf_mcp --cov-report=term-missing --cov-fail-under=85
 
   smoke:
     name: Server smoke
