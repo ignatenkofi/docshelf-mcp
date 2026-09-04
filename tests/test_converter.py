@@ -225,6 +225,31 @@ def test_pdf_conversion_rejects_a_file_that_is_not_a_pdf(tmp_path: Path):
         source_to_markdown(fake)
 
 
+def test_absent_pymupdf4llm_names_the_pdf_extra(monkeypatch, tmp_path: Path):
+    """The fast path's ImportError branch, unreachable until #93.
+
+    pymupdf4llm was a core dependency, so no environment this package could be
+    installed into ever hit this handler. Now that it is the `pdf` extra, a
+    bare install does — and the message must name the extra, not just the
+    package (which the reader would otherwise have to know about).
+
+    Does not skip: `sys.modules[name] = None` makes `import name` raise
+    ImportError whether or not the real library is installed, so the branch
+    is checked in CI (where the dev extra has it) as well as in a bare
+    checkout.
+    """
+    monkeypatch.setitem(sys.modules, "pymupdf4llm", None)
+    pdf = tmp_path / "doc.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n")
+
+    with pytest.raises(ConversionError) as exc:
+        source_to_markdown(pdf)
+
+    msg = str(exc.value)
+    assert "is not installed" in msg
+    assert "docshelf-mcp[pdf]" in msg, msg
+
+
 # --------------------------------------------------------------------------
 # Backend failure must arrive as ConversionError
 #

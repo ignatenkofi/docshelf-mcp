@@ -195,8 +195,8 @@ def init_shelf(params: t.InitShelfInput) -> str:
 def add_document(params: t.AddDocumentInput) -> str:
     """Add a PDF or Markdown file to the shelf and refresh INDEX.md.
 
-    * ``.pdf`` is converted to Markdown (``pymupdf4llm`` by default; pass
-      ``quality='high'`` to use ``marker-pdf``).
+    * ``.pdf`` is converted to Markdown (``pymupdf4llm`` by default — the
+      ``pdf`` extra; pass ``quality='high'`` to use ``marker-pdf``).
     * Documents larger than 50 KB with multiple H2 headings are split into
       one file per section (turn this off with ``split=False``).
     * If a *different* title/category slugifies onto a path an existing

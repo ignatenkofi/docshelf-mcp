@@ -37,7 +37,7 @@
 | Module | Responsibility |
 |---|---|
 | `core.slugify` | Unicode-safe filename slug. Pure function. |
-| `core.converter` | PDF → Markdown via pymupdf4llm (`fast`) or marker-pdf (`high`). Both engines imported lazily. |
+| `core.converter` | PDF → Markdown via pymupdf4llm (`fast`) or marker-pdf (`high`). Both engines are extras (`pdf`, `high-quality`) and imported lazily. |
 | `core.splitter` | Cleanup heuristics + H2-based section split. Decides whether to split based on byte size + H2 count. |
 | `core.indexer` | Walks the on-disk shelf, builds `INDEX.md`. Renders raw GitHub URLs when a remote is configured. |
 | `core.shelf` | High-level facade (`Shelf` class). Coordinates the four modules above and persists shelf metadata. |

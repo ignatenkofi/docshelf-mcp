@@ -4,7 +4,7 @@ Two engines:
 
 * ``"fast"`` — `pymupdf4llm <https://pypi.org/project/pymupdf4llm/>`__.
   Pure-Python, no GPU, ~1 second per 100 pages. Good enough for most
-  technical manuals. **Default.**
+  technical manuals. **Default.** Optional — the ``pdf`` extra (#93).
 * ``"high"`` — `marker-pdf <https://pypi.org/project/marker-pdf/>`__.
   Higher fidelity (tables, equations), but heavy (PyTorch). Optional —
   only imported if requested.
@@ -33,8 +33,8 @@ __all__ = [
 
 Quality = Literal["fast", "high"]
 
-#: Input suffixes :func:`source_to_markdown` can ingest. Markdown and PDF work
-#: out of the box; DOCX / HTML / EPUB need the matching optional extra.
+#: Input suffixes :func:`source_to_markdown` can ingest. Markdown works out of
+#: the box; PDF / DOCX / HTML / EPUB need the matching optional extra.
 SUPPORTED_INPUT_SUFFIXES = (
     ".md",
     ".markdown",
@@ -100,7 +100,8 @@ def _convert_fast(pdf_path: Path) -> str:
     except ImportError as exc:
         raise ConversionError(
             "pymupdf4llm is required for quality='fast' but is not installed. "
-            "Install it with: pip install pymupdf4llm"
+            "Install it with: pip install 'docshelf-mcp[pdf]' or "
+            "pip install pymupdf4llm"
         ) from exc
 
     try:
@@ -372,7 +373,7 @@ def source_to_markdown(source: Path | str, quality: Quality = "fast") -> str:
         raise ConversionError(
             f"Unsupported source type {suffix or '<no extension>'!r}. "
             f"Supported: {', '.join(SUPPORTED_INPUT_SUFFIXES)}. "
-            "DOCX/HTML/EPUB need the matching extra, e.g. "
+            "PDF/DOCX/HTML/EPUB need the matching extra, e.g. "
             "pip install 'docshelf-mcp[formats]'."
         )
     return converter(source)
