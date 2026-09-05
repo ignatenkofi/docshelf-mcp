@@ -138,6 +138,17 @@ and a benchmark you can run on your own shelf.
 
 ---
 
+## The same pattern for an agent's own memory — memshelf
+
+[memshelf-mcp](https://ignatenkofi.github.io/memshelf-mcp/) is the sibling
+project: closed conversation topics are offloaded to a private docshelf shelf
+as digest-indexed episodes, the agent keeps only `INDEX.md` in context and
+recalls one section when it needs it. Measured over one week on the author's
+live shelf: 34 episodes, ~8.6K tokens of standing cost per session against
+~1.9M tokens of shelved mass — **≈220 : 1** — and a fresh agent answered
+5 / 5 recall questions from the index alone. Numbers and method:
+**[memshelf's measured demo →](https://github.com/ignatenkofi/memshelf-mcp/blob/main/docs/demo.md)**.
+
 ## Resources
 
 - 📦 [PyPI](https://pypi.org/project/docshelf-mcp/) — `pip install docshelf-mcp`
@@ -145,6 +156,7 @@ and a benchmark you can run on your own shelf.
 - 🌐 [Glama listing](https://glama.ai/mcp/servers/ignatenkofi/docshelf-mcp) — install button + security score
 - 📋 [Project prompts](https://github.com/ignatenkofi/docshelf-mcp/blob/main/docs/PROJECT_PROMPT.md) — ready-to-paste instructions for Claude / ChatGPT / API
 - 📖 [Architecture](https://github.com/ignatenkofi/docshelf-mcp/blob/main/docs/ARCHITECTURE.md) — how it works internally
+- 🧠 [memshelf-mcp](https://github.com/ignatenkofi/memshelf-mcp) — the sibling: an AI agent's own working memory on a docshelf shelf
 
 ---
 
