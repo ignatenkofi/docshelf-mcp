@@ -76,7 +76,7 @@ pdf = [
     "pymupdf4llm>=1.0,<1.29",
 ]
 high-quality = [
-    "marker-pdf>=1.0.0,<2",
+    "marker-pdf>=1.0.0,<3",
 ]
 docx = [
     "mammoth>=1.6,<2",
