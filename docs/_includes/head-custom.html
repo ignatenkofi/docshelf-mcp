@@ -1,0 +1,19 @@
+{%- comment -%}
+Feedback button (feedback-relay). Cayman's default layout pulls this file in
+via `{% include head-custom.html %}`. The two scripts are verbatim copies of
+sdk/feedback.js and sdk/feedback-form.js from ignatenkofi/feedback-relay;
+mount() appends the button to <body>, hence the DOMContentLoaded wrapper.
+{%- endcomment -%}
+<script defer src="{{ '/assets/feedback.js' | relative_url }}"></script>
+<script defer src="{{ '/assets/feedback-form.js' | relative_url }}"></script>
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    if (!window.FeedbackRelay || !FeedbackRelay.mount) return;
+    FeedbackRelay.mount({
+      endpoint: 'https://feedback-relay.ignatenkofi.workers.dev',
+      project: 'docshelf',
+      lang: 'en',
+      context: function () { return { page: location.pathname }; }
+    });
+  });
+</script>
