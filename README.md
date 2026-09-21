@@ -47,7 +47,7 @@ Result: a 5 KB index pointing at a 50 MB collection. The model reads exactly the
 
 ## 📦 Install
 
-From PyPI (once the first tagged release is published):
+From PyPI:
 
 ```bash
 # uv (recommended)
