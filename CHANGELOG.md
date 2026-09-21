@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- **The conformance job validates the manifest docshelf writes, strictly**
+  (shelf-spec ADR-0005). Since 0.4.0 the job scaffolded a shelf with
+  docshelf's own tools and then validated it against a hand-written candidate
+  `shelf.yml` kept in `tests/fixtures` — a file docshelf never emits, from
+  before `init` could write a manifest (#63). The scaffold now runs
+  `init(manifest=True)`, the validator reads the `shelf.yml` docshelf wrote,
+  and `--strict` turns warnings into failures: without it a scaffold whose
+  `INDEX.md` went missing still passed, because `stale-index` is a warning.
+  The candidate fixture is gone; nothing else referenced it.
+
 - **INDEX entries no longer print their filename twice** (#96). A non-split
   entry was rendered as ``- **Title** — description — [`file.md`](…/file.md)``:
   the label repeated the last segment of the URL on every line. On a real
