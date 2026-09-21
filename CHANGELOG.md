@@ -44,6 +44,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `pip install docshelf-mcp` no longer converts PDFs. The next release is a
   minor bump (0.5.0), not a patch.
 
+### Fixed
+- **The `marker-pdf` ceiling is `<2` again.** 0.4.0 introduced the ceiling
+  precisely to keep the released-but-untested 2.x major out of
+  `pip install 'docshelf-mcp[high-quality]'`; dependabot #92 then widened it
+  to `<3` and merged green — green because marker-pdf is not in the `dev`
+  extra (it pulls PyTorch), so CI never imports it, and the only tests that
+  mention it mock the installed version. Under `<3` a fresh install resolved
+  marker-pdf 2.0.0; under `<2` it resolves the 1.x line this code has actually
+  run against. `dependabot.yml` now ignores semver-major updates of
+  `marker-pdf`, so the next major arrives as a deliberate port with a real run,
+  not as a weekly range widening.
+
 ## [0.4.1] — 2026-08-24
 
 ### Fixed

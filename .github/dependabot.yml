@@ -21,3 +21,12 @@ updates:
     # treatment — a port plus a run of tests/test_stdio_protocol.py — but
     # suppressing it before it exists would hide the proposal rather than
     # answer it.
+    ignore:
+      # marker-pdf is the opposite case: the major exists, the proposal was
+      # made (#92 widened the ceiling to `<3`) and it was answered — reverted
+      # to `<2`, because nothing here can judge 2.x. marker-pdf is not in the
+      # `dev` extra (it pulls PyTorch), so CI never imports it and a green
+      # check says nothing about the new major. Minor/patch bumps still
+      # arrive as PRs; the major waits for a deliberate port with a real run.
+      - dependency-name: "marker-pdf"
+        update-types: ["version-update:semver-major"]
