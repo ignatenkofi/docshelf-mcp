@@ -9,6 +9,11 @@ on:
     branches: [main]
 jobs:
   pipeline:
-    uses: ignatenkofi/devsecops-pipeline-public/.github/workflows/pipeline-light.yml@v1.2.0
+    # Плавает по мажору, как у соседей (memshelf-mcp, shelf-spec). Точечный
+    # пин `@v1.2.0` здесь никто не выбирал: dependabot (#87) сам переписал
+    # `@v1` в `@v1.2.0`, когда `v1` отстал от свежего v1.x.y, — и с тех пор
+    # конвейер двигался только руками, то есть никак. Повтор закрыт правилом
+    # ignore в dependabot.yml: миноры и патчи этого workflow не предлагаются.
+    uses: ignatenkofi/devsecops-pipeline-public/.github/workflows/pipeline-light.yml@v1
     with:
       repo-class: library
