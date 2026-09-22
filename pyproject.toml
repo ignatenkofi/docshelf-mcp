@@ -75,8 +75,14 @@ dependencies = [
 pdf = [
     "pymupdf4llm>=1.0,<1.29",
 ]
+# Ceiling at 2, restored. 0.4.0 introduced `<2` to keep the released but
+# untested 2.x major out; dependabot #92 widened it to `<3` and merged green,
+# and green proved nothing: marker-pdf is not in the `dev` extra (it pulls
+# PyTorch, ~2 GB), so CI never imports it, and the only tests that mention it
+# mock the installed version. The next major gets a port and a real run, not
+# a widened range — dependabot.yml ignores its semver-major updates for now.
 high-quality = [
-    "marker-pdf>=1.0.0,<3",
+    "marker-pdf>=1.0.0,<2",
 ]
 docx = [
     "mammoth>=1.6,<2",
