@@ -28,4 +28,14 @@ Regenerates `docs/assets/token-savings.svg` from the measured numbers (kept in
 the script). Run it after re-measuring to refresh the chart on the
 [demo page](../docs/demo.md).
 
+```bash
+python benchmarks/make_chart.py
+python benchmarks/make_chart.py --check
+python benchmarks/make_chart.py --out build/token-savings.svg
+```
+
+`--check` writes nothing and exits 1 when the committed chart is not what the
+script renders; `tests/test_make_chart.py` runs it, so changing the numbers
+without regenerating the chart fails the suite. `--out` writes elsewhere.
+
 See the write-up with the published numbers: **[docs/demo.md](../docs/demo.md)**.

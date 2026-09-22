@@ -40,7 +40,8 @@ real workflow that's currently painful.
    pytest -v
    ```
 
-   CI runs the same on Python 3.10 / 3.11 / 3.12.
+   CI runs the same on every Python in the `ci.yml` matrix: 3.10 through
+   3.13 on Linux, plus one smoke run each on Windows and macOS.
 
 5. Add a short note to `CHANGELOG.md` under the `[Unreleased]` section.
 6. Open the PR. Reference the issue it addresses, if any.

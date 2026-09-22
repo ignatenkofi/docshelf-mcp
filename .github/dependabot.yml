@@ -7,6 +7,15 @@ updates:
       interval: "weekly"
     commit-message:
       prefix: "ci"
+    ignore:
+      # The shared DevSecOps pipeline is followed by its major tag `@v1` on
+      # purpose (security.yml), like the sibling repos. Dependabot re-pins
+      # such a ref to the newest v1.x.y whenever `v1` lags behind it — #87
+      # turned `@v1` into `@v1.2.0` exactly that way, and the pin then sat
+      # four minors behind because nothing moved it. Only a new major is
+      # worth a PR here.
+      - dependency-name: "ignatenkofi/devsecops-pipeline-public/.github/workflows/pipeline-light.yml"
+        update-types: ["version-update:semver-minor", "version-update:semver-patch"]
 
   # Keep Python dependencies (declared in pyproject.toml) fresh.
   - package-ecosystem: "pip"
