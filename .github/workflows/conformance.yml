@@ -45,7 +45,13 @@ jobs:
           from docshelf_mcp.core.shelf import Shelf
 
           shelf = Shelf(Path("."))
-          shelf.init(name="ci-conformance", default_categories=["guides", "notes"])
+          shelf.init(
+              name="ci-conformance",
+              default_categories=["guides", "notes"],
+              # The shelf.yml under test is the one docshelf writes (#63),
+              # not a hand-written stand-in.
+              manifest=True,
+          )
           doc = Path("sample.md")
           doc.write_text(
               "# Sample guide\n\nA short body for conformance checking.\n",
@@ -57,11 +63,14 @@ jobs:
           doc.unlink()  # the source file is input, not shelf content
           PY
 
-      - name: Validate against shelf-spec (candidate manifest)
-        # Exit contract: 0 conforms (info/warnings allowed), 1 spec
-        # violations, 2 config-error. The candidate manifest stands in until
-        # docshelf's init emits a shelf.yml itself.
+      - name: Validate against shelf-spec (docshelf's own manifest, strict)
+        # Exit contract: 0 conforms, 1 spec violations — or, with --strict,
+        # any warning — 2 config-error. The manifest is the shelf.yml that
+        # `init(manifest=True)` wrote above; a hand-written candidate in
+        # tests/fixtures used to stand in for it, so the job validated a file
+        # docshelf never emits. --strict because the finding a broken
+        # scaffold produces, `stale-index` (INDEX.md missing or not listing a
+        # document), is a warning: without the flag it left the job green.
         run: |
-          shelf-spec validate --ci \
-            --manifest "$GITHUB_WORKSPACE/tests/fixtures/conformance.shelf.yml" \
-            /tmp/ci-shelf
+          cat /tmp/ci-shelf/shelf.yml
+          shelf-spec validate --ci --strict /tmp/ci-shelf
