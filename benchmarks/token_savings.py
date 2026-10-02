@@ -107,10 +107,10 @@ class ShelfReport:
     index_tokens: int
     document_count: int
     section_count: int
-    collection_tokens: int          # A: sum of all full documents
-    median_document_tokens: int     # B: a typical whole manual
+    collection_tokens: int  # A: sum of all full documents
+    median_document_tokens: int  # B: a typical whole manual
     largest_document_tokens: int
-    median_section_tokens: int      # C ingredient
+    median_section_tokens: int  # C ingredient
     #: C: cost to answer one question the docshelf way.
     docshelf_query_tokens: int
     #: Savings of C vs dumping the collection (A) and vs loading the biggest
@@ -139,8 +139,7 @@ def analyze(shelf: Path) -> ShelfReport:
     docshelf_query = index_tokens + median_sec
 
     overflow = {
-        label: sum(1 for t in doc_tokens if t > limit)
-        for label, limit in _CONTEXT_WINDOWS.items()
+        label: sum(1 for t in doc_tokens if t > limit) for label, limit in _CONTEXT_WINDOWS.items()
     }
 
     return ShelfReport(
@@ -171,10 +170,7 @@ def _print_human(r: ShelfReport) -> None:
     print(f"  median document (B):  {_fmt(r.median_document_tokens)} tokens")
     print(f"  largest document:     {_fmt(r.largest_document_tokens)} tokens")
     print(f"  median section:       {_fmt(r.median_section_tokens)} tokens")
-    print(
-        f"  docshelf query (C = INDEX + 1 section): "
-        f"{_fmt(r.docshelf_query_tokens)} tokens"
-    )
+    print(f"  docshelf query (C = INDEX + 1 section): {_fmt(r.docshelf_query_tokens)} tokens")
     print(f"  → {r.savings_vs_collection_pct}% cheaper than dumping the collection")
     print(f"  → {r.savings_vs_largest_pct}% cheaper than loading the biggest document")
     for label, n in r.overflow.items():

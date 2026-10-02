@@ -48,8 +48,8 @@ __all__ = [
 # flag (e.g. "# 0 X chain=...", "# 12 ADC ...", "# 0 R ether1 ...").
 _FAKE_H1 = re.compile(
     r"^# (?:"
-    r"\d+\s+[A-Z]+\b"      # # 12 ADC ...
-    r"|\d+\s+[A-Z]\b"      # # 0 X ...
+    r"\d+\s+[A-Z]+\b"  # # 12 ADC ...
+    r"|\d+\s+[A-Z]\b"  # # 0 X ...
     r")",
 )
 
@@ -365,20 +365,38 @@ def lint_sections(sections: list[tuple[str, str]]) -> list[SectionWarning]:
         if title == "preamble":
             continue
         if _looks_like_toc_leak(title):
-            warnings.append(SectionWarning(idx, title, "toc-leak",
-                "heading contains a dotted table-of-contents leader"))
+            warnings.append(
+                SectionWarning(
+                    idx, title, "toc-leak", "heading contains a dotted table-of-contents leader"
+                )
+            )
         elif _looks_like_unit_fragment(title):
-            warnings.append(SectionWarning(idx, title, "unit-fragment",
-                "heading reads like a body sentence, not a chapter title"))
+            warnings.append(
+                SectionWarning(
+                    idx,
+                    title,
+                    "unit-fragment",
+                    "heading reads like a body sentence, not a chapter title",
+                )
+            )
         elif _looks_like_table_residue(title):
-            warnings.append(SectionWarning(idx, title, "table-residue",
-                "heading looks like a table row (pipes/tabs or mostly numbers)"))
+            warnings.append(
+                SectionWarning(
+                    idx,
+                    title,
+                    "table-residue",
+                    "heading looks like a table row (pipes/tabs or mostly numbers)",
+                )
+            )
 
         norm = _normalize_title(title)
         if norm:
             if norm in seen:
-                warnings.append(SectionWarning(idx, title, "near-duplicate",
-                    f"heading duplicates section {seen[norm]:03d}"))
+                warnings.append(
+                    SectionWarning(
+                        idx, title, "near-duplicate", f"heading duplicates section {seen[norm]:03d}"
+                    )
+                )
             else:
                 seen[norm] = idx
     return warnings

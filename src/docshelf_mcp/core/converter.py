@@ -222,9 +222,7 @@ def pdf_to_markdown(pdf_path: Path | str, quality: Quality = "fast") -> str:
     if not pdf_path.exists():
         raise FileNotFoundError(f"PDF not found: {pdf_path}")
     if pdf_path.suffix.lower() != ".pdf":
-        raise ConversionError(
-            f"Expected a .pdf file, got {pdf_path.suffix or '<no extension>'}"
-        )
+        raise ConversionError(f"Expected a .pdf file, got {pdf_path.suffix or '<no extension>'}")
 
     if quality == "fast":
         return _convert_fast(pdf_path)

@@ -12,6 +12,7 @@ same bytes and ``--check`` can judge whether the committed chart is current::
                                                is missing or not what this renders
     python benchmarks/make_chart.py --out X    write X instead
 """
+
 import argparse
 import sys
 from pathlib import Path
@@ -41,9 +42,9 @@ SHELVES = [
 ]
 
 W = 970
-X0 = 300           # bars start here (left column = labels)
-BARW = 420         # full bar width == the naive cost
-BH = 30            # bar height
+X0 = 300  # bars start here (left column = labels)
+BARW = 420  # full bar width == the naive cost
+BH = 30  # bar height
 INK = "#1f2933"
 MUTED = "#6b7280"
 NAIVE = "#cbd5e1"
@@ -85,8 +86,7 @@ def render() -> str:
     for s in SHELVES:
         # Shelf name + big savings callout on the right.
         svg.append(
-            f'<text x="30" y="{y}" font-size="15" font-weight="700" fill="{INK}">'
-            f'{s["name"]}</text>'
+            f'<text x="30" y="{y}" font-size="15" font-weight="700" fill="{INK}">{s["name"]}</text>'
         )
         svg.append(
             f'<text x="{X0 + BARW}" y="{y}" font-size="20" font-weight="800" '
@@ -120,9 +120,7 @@ def render() -> str:
             f'<text x="{X0 - 12}" y="{dy + BH * 0.68:.0f}" font-size="13" '
             f'font-weight="600" fill="{GOOD}" text-anchor="end">docshelf: INDEX + 1 section</text>'
         )
-        svg.append(
-            f'<rect x="{X0}" y="{dy}" width="{dw:.1f}" height="{BH}" rx="3" fill="{GOOD}"/>'
-        )
+        svg.append(f'<rect x="{X0}" y="{dy}" width="{dw:.1f}" height="{BH}" rx="3" fill="{GOOD}"/>')
         svg.append(
             f'<text x="{X0 + dw + 10:.1f}" y="{dy + BH * 0.68:.0f}" font-size="13" '
             f'font-weight="700" fill="{GOOD}">{fmt(s["docshelf"])} tokens</text>'

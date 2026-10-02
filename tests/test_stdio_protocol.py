@@ -88,9 +88,7 @@ def _server(shelf_root: Path) -> StdioServerParameters:
     """
     env = dict(os.environ)
     env["DOCSHELF_ROOT"] = str(shelf_root)
-    return StdioServerParameters(
-        command=sys.executable, args=["-m", "docshelf_mcp"], env=env
-    )
+    return StdioServerParameters(command=sys.executable, args=["-m", "docshelf_mcp"], env=env)
 
 
 def _seeded_shelf(tmp_path: Path) -> Path:
@@ -98,9 +96,7 @@ def _seeded_shelf(tmp_path: Path) -> Path:
     shelf = Shelf(root)
     shelf.init(name="Protocol shelf", default_categories=["notes"])
     source = tmp_path / "quarterly.md"
-    source.write_text(
-        "# Quarterly\n\nThe reconciliation closed on the 14th.\n", encoding="utf-8"
-    )
+    source.write_text("# Quarterly\n\nThe reconciliation closed on the 14th.\n", encoding="utf-8")
     shelf.add_document(source, category="notes", title="Quarterly", description="Q report")
     return root
 
@@ -208,7 +204,6 @@ async def test_a_server_that_never_answers_fails_instead_of_hanging():
     assert not any(isinstance(exc, AssertionError) for exc in raised)
     assert any(_looks_like_timeout(exc) for exc in raised), (
         "nothing in the failure says the request timed out, so the cap was not "
-        "what stopped it: "
-        + "; ".join(f"{type(exc).__name__}: {exc}" for exc in raised)
+        "what stopped it: " + "; ".join(f"{type(exc).__name__}: {exc}" for exc in raised)
     )
     assert elapsed < 60, f"waited {elapsed:.0f}s — the cap did not fire at all"

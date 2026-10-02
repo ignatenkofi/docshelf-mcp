@@ -229,9 +229,7 @@ class UrlResolver:
         self.url_template = url_template
 
     def __call__(self, relative_path: str) -> str:
-        return shelf_url(
-            self.provider, self.remote, self.branch, self.url_template, relative_path
-        )
+        return shelf_url(self.provider, self.remote, self.branch, self.url_template, relative_path)
 
 
 def scan_shelf(shelf_root: Path) -> list[DocumentEntry]:
@@ -340,7 +338,11 @@ def _pretty_section(section_relpath: str) -> str:
 
 def _subindex_relpath(entry: DocumentEntry) -> str:
     """``docs/cat/foo.md`` → ``docs/cat/foo/SUBINDEX.md``."""
-    stem_dir = entry.relative_path[: -len(".md")] if entry.relative_path.endswith(".md") else entry.relative_path
+    stem_dir = (
+        entry.relative_path[: -len(".md")]
+        if entry.relative_path.endswith(".md")
+        else entry.relative_path
+    )
     return f"{stem_dir}/{SUBINDEX_FILENAME}"
 
 
@@ -573,8 +575,7 @@ def _render_entry(
     lines.append("")
     size_kb = entry.size_bytes // 1024
     lines.append(
-        f"Full document: {full_link} "
-        f"(~{size_kb} KB — prefer pulling individual sections below)."
+        f"Full document: {full_link} (~{size_kb} KB — prefer pulling individual sections below)."
     )
     lines.append("")
     if use_subindex:

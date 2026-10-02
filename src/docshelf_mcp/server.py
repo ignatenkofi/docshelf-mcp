@@ -123,9 +123,7 @@ def register_shelf_resources(shelf: Shelf | str | None = None) -> int:
         _add_file_resource(shelf, entry.relative_path, title=entry.title)
         count += 1
         for section in entry.section_paths:
-            _add_file_resource(
-                shelf, section, title=f"{entry.title} — {Path(section).name}"
-            )
+            _add_file_resource(shelf, section, title=f"{entry.title} — {Path(section).name}")
             count += 1
     return count
 
