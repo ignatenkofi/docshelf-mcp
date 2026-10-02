@@ -36,3 +36,6 @@ pytest-of-*/
 * 2.md
 * 2.py
 * 2.json
+
+# uv's lockfile is not part of this project (pip/pyproject only)
+uv.lock

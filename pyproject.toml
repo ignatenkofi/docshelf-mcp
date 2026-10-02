@@ -104,7 +104,7 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     "pytest-cov>=5.0",
-    "ruff>=0.5.0",
+    "ruff>=0.15.20,<0.17",
     # Format backends + a .docx fixture builder, so the PDF/DOCX/HTML/EPUB
     # conversion tests run in CI. pymupdf4llm must stay here: the PDF tests
     # importorskip it, so leaving it out would not fail CI — it would turn
