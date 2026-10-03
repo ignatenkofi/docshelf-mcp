@@ -203,9 +203,7 @@ class ShelfConfig:
         """Resolve a shelf-relative path to a fetch URL under this config."""
         from docshelf_mcp.core.indexer import shelf_url
 
-        return shelf_url(
-            self.provider, self.remote, self.branch, self.url_template, relative_path
-        )
+        return shelf_url(self.provider, self.remote, self.branch, self.url_template, relative_path)
 
     @classmethod
     def load(cls, shelf_root: Path) -> ShelfConfig:
@@ -278,16 +276,12 @@ def _manifest_config_conflicts(manifest: dict, config: ShelfConfig) -> list[str]
         and config.name
         and manifest_name != config.name
     ):
-        conflicts.append(
-            f"name: shelf.yml '{manifest_name}' vs .docshelf.json '{config.name}'"
-        )
+        conflicts.append(f"name: shelf.yml '{manifest_name}' vs .docshelf.json '{config.name}'")
     declared = manifest.get("categories")
     if isinstance(declared, list) and declared and config.category_order:
         extra = sorted(set(config.category_order) - {str(c) for c in declared})
         if extra:
-            conflicts.append(
-                "category_order lists undeclared categories: " + ", ".join(extra)
-            )
+            conflicts.append("category_order lists undeclared categories: " + ", ".join(extra))
     return conflicts
 
 
@@ -422,8 +416,7 @@ class Shelf:
         # unknown-provider / custom-without-template rules instead.
         if provider and provider not in URL_PROVIDERS:
             raise ValueError(
-                f"unknown provider {provider!r}; expected one of: "
-                + ", ".join(URL_PROVIDERS)
+                f"unknown provider {provider!r}; expected one of: " + ", ".join(URL_PROVIDERS)
             )
         if provider == "custom" and not url_template:
             raise ValueError(
@@ -457,10 +450,7 @@ class Shelf:
         gitignore = self.root / ".gitignore"
         if not gitignore.exists():
             gitignore.write_text(
-                "# docshelf — local-only artefacts\n"
-                ".DS_Store\n"
-                "*.swp\n"
-                "__pycache__/\n",
+                "# docshelf — local-only artefacts\n.DS_Store\n*.swp\n__pycache__/\n",
                 encoding="utf-8",
             )
 
@@ -564,8 +554,10 @@ class Shelf:
         # document, refuse (unless overwrite) rather than silently clobber it.
         # Checked before the (possibly expensive) conversion so we fail fast.
         overwritten = doc_path.exists()
-        if overwritten and not overwrite and not self._is_same_document(
-            category_dir, doc_path.name, title
+        if (
+            overwritten
+            and not overwrite
+            and not self._is_same_document(category_dir, doc_path.name, title)
         ):
             existing_title = self._existing_title(category_dir, doc_path.name)
             raise DocumentExistsError(
@@ -612,9 +604,7 @@ class Shelf:
                 section_paths = write_split_files(sections, split_dir)
                 was_split = True
                 warnings.extend(lint_sections(sections))
-        elif split_dir.is_dir() and not should_split(
-            cleaned, self.config.split_threshold_bytes
-        ):
+        elif split_dir.is_dir() and not should_split(cleaned, self.config.split_threshold_bytes):
             # The new content no longer qualifies for splitting, so its old
             # section files are stale — wipe them. Gated on the *content*, not
             # the `split` argument: re-adding still-splittable content with
@@ -705,9 +695,7 @@ class Shelf:
                 )
                 results.append({"file": path.name, "status": "ok", "result": result})
             except Exception as exc:  # noqa: BLE001 — one bad file must not abort the batch
-                results.append(
-                    {"file": path.name, "status": "error", "error": str(exc)}
-                )
+                results.append({"file": path.name, "status": "error", "error": str(exc)})
 
         # A single rebuild reflects every successfully-added file.
         self.rebuild_index()
@@ -754,9 +742,7 @@ class Shelf:
         docs_root = (self.root / "docs").resolve()
         target = (self.root / relative_path).resolve()
         if not target.is_relative_to(docs_root):
-            raise ValueError(
-                f"Path escapes the shelf docs/ directory: {relative_path!r}"
-            )
+            raise ValueError(f"Path escapes the shelf docs/ directory: {relative_path!r}")
         if not target.is_file():
             raise FileNotFoundError(f"Document not found under docs/: {relative_path!r}")
 
@@ -864,8 +850,7 @@ class Shelf:
         """
         if new_title is None and new_category is None and new_description is None:
             raise ValueError(
-                "rename_document needs at least one of new_title / new_category "
-                "/ new_description"
+                "rename_document needs at least one of new_title / new_category / new_description"
             )
 
         category_slug = slugify(category, max_len=80) or "uncategorized"
@@ -876,9 +861,7 @@ class Shelf:
             )
         doc_path = self._resolve_document(category_dir, document)
         if doc_path is None:
-            raise FileNotFoundError(
-                f"Document not found in {category_slug!r}: {document!r}"
-            )
+            raise FileNotFoundError(f"Document not found in {category_slug!r}: {document!r}")
 
         # Resolve the effective title/description (fall back to current values).
         cur_title = self._existing_title(category_dir, doc_path.name) or (
@@ -938,9 +921,7 @@ class Shelf:
                         raise
                 self._prune_category_meta(category_dir, doc_path.name)
                 _corpus_cache.pop(doc_path, None)
-            self._update_category_meta(
-                new_cat_dir, new_doc_path.name, title, description
-            )
+            self._update_category_meta(new_cat_dir, new_doc_path.name, title, description)
             self.rebuild_index()
 
         return RenameResult(
@@ -989,9 +970,7 @@ class Shelf:
             return
         del data[filename]
         if data:
-            atomic_write_text(
-                meta_path, json.dumps(data, indent=2, ensure_ascii=False) + "\n"
-            )
+            atomic_write_text(meta_path, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
         else:
             meta_path.unlink()
 
@@ -1029,9 +1008,7 @@ class Shelf:
             return desc if isinstance(desc, str) else ""
         return ""
 
-    def _is_same_document(
-        self, category_dir: Path, filename: str, title: str
-    ) -> bool:
+    def _is_same_document(self, category_dir: Path, filename: str, title: str) -> bool:
         """Whether an existing file at ``filename`` is the same logical document.
 
         True only when the stored title matches ``title`` (case-insensitively,
@@ -1160,10 +1137,15 @@ class Shelf:
             stems = {p.stem for p in md_files}
 
             if not md_files:
-                findings.append(DoctorFinding(
-                    "empty-category", "info", rel(category_dir),
-                    "category directory contains no documents",
-                    "remove the empty directory"))
+                findings.append(
+                    DoctorFinding(
+                        "empty-category",
+                        "info",
+                        rel(category_dir),
+                        "category directory contains no documents",
+                        "remove the empty directory",
+                    )
+                )
 
             # stale-meta-entry: a .meta.json key with no matching file.
             meta_path = category_dir / ".meta.json"
@@ -1172,46 +1154,66 @@ class Shelf:
                     data = json.loads(meta_path.read_text(encoding="utf-8"))
                 except json.JSONDecodeError:
                     data = None
-                    findings.append(DoctorFinding(
-                        "corrupt-meta", "error", rel(meta_path),
-                        "`.meta.json` is not valid JSON",
-                        "fix or delete the file, then rebuild_index"))
+                    findings.append(
+                        DoctorFinding(
+                            "corrupt-meta",
+                            "error",
+                            rel(meta_path),
+                            "`.meta.json` is not valid JSON",
+                            "fix or delete the file, then rebuild_index",
+                        )
+                    )
                 # meta-shape: valid JSON of the wrong shape (#65). The scan
                 # coerces what it can (a bare string becomes the title), but
                 # the file should be brought back to the documented shape.
                 if data is not None and not isinstance(data, dict):
-                    findings.append(DoctorFinding(
-                        "meta-shape", "error", rel(meta_path),
-                        "top level must be an object mapping '<doc>.md' to "
-                        '{"title": ..., "description": ...}',
-                        "rewrite the file to the documented shape"))
+                    findings.append(
+                        DoctorFinding(
+                            "meta-shape",
+                            "error",
+                            rel(meta_path),
+                            "top level must be an object mapping '<doc>.md' to "
+                            '{"title": ..., "description": ...}',
+                            "rewrite the file to the documented shape",
+                        )
+                    )
                 if isinstance(data, dict):
                     bad_shape = sorted(
-                        str(k) for k, v in data.items()
-                        if not isinstance(v, dict) or any(
-                            f in v and not isinstance(v[f], str)
-                            for f in ("title", "description")))
+                        str(k)
+                        for k, v in data.items()
+                        if not isinstance(v, dict)
+                        or any(
+                            f in v and not isinstance(v[f], str) for f in ("title", "description")
+                        )
+                    )
                     if bad_shape:
-                        findings.append(DoctorFinding(
-                            "meta-shape", "error", rel(meta_path),
-                            "entries not shaped as objects with string "
-                            "title/description: " + ", ".join(bad_shape),
-                            'rewrite each entry as {"title": "...", '
-                            '"description": "..."}'))
+                        findings.append(
+                            DoctorFinding(
+                                "meta-shape",
+                                "error",
+                                rel(meta_path),
+                                "entries not shaped as objects with string "
+                                "title/description: " + ", ".join(bad_shape),
+                                'rewrite each entry as {"title": "...", "description": "..."}',
+                            )
+                        )
                     stale = sorted(k for k in data if not (category_dir / k).is_file())
                     for k in stale:
                         f = DoctorFinding(
-                            "stale-meta-entry", "warning", rel(meta_path),
+                            "stale-meta-entry",
+                            "warning",
+                            rel(meta_path),
                             f"entry '{k}' has no matching document file",
-                            "prune the entry")
+                            "prune the entry",
+                        )
                         findings.append(f)
                     if fix and stale:
                         for k in stale:
                             del data[k]
                         if data:
                             atomic_write_text(
-                                meta_path,
-                                json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+                                meta_path, json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+                            )
                         else:
                             meta_path.unlink()
                         for f in findings:
@@ -1223,9 +1225,12 @@ class Shelf:
             for sub in sorted(p for p in category_dir.iterdir() if p.is_dir()):
                 if sub.stem not in stems:
                     f = DoctorFinding(
-                        "orphaned-split-dir", "warning", rel(sub),
+                        "orphaned-split-dir",
+                        "warning",
+                        rel(sub),
                         "split directory has no parent document",
-                        "delete the directory")
+                        "delete the directory",
+                    )
                     if fix:
                         shutil.rmtree(sub)
                         f.fixed = True
@@ -1243,27 +1248,37 @@ class Shelf:
                     continue
                 expected = _expected_split_names(split_by_h2(text))
                 actual = sorted(
-                    p.name for p in split_dir.glob("*.md")
-                    if p.name != SUBINDEX_FILENAME
+                    p.name for p in split_dir.glob("*.md") if p.name != SUBINDEX_FILENAME
                 )
                 if expected != actual:
-                    findings.append(DoctorFinding(
-                        "split-out-of-sync", "warning", rel(md),
-                        "section files differ from a fresh split of the parent",
-                        "re-add the document to regenerate its sections"))
+                    findings.append(
+                        DoctorFinding(
+                            "split-out-of-sync",
+                            "warning",
+                            rel(md),
+                            "section files differ from a fresh split of the parent",
+                            "re-add the document to regenerate its sections",
+                        )
+                    )
 
         # duplicate-title within a category (from the resolved entries).
         by_cat_title: dict[tuple[str, str], list[str]] = {}
         for e in self.scan():
             by_cat_title.setdefault((e.category, e.title.strip().lower()), []).append(
-                e.relative_path)
+                e.relative_path
+            )
         for (cat, _title), paths in by_cat_title.items():
             if len(paths) > 1:
                 for p in sorted(paths)[1:]:
-                    findings.append(DoctorFinding(
-                        "duplicate-title", "warning", p,
-                        f"title duplicates another document in '{cat}'",
-                        "give one of the documents a distinct title"))
+                    findings.append(
+                        DoctorFinding(
+                            "duplicate-title",
+                            "warning",
+                            p,
+                            f"title duplicates another document in '{cat}'",
+                            "give one of the documents a distinct title",
+                        )
+                    )
 
         # colliding-category-dirs: two+ literal category directories that
         # slugify to the same slug (e.g. "Research Papers" and
@@ -1273,18 +1288,21 @@ class Shelf:
         # it (#49). Group by slug and flag any slug backed by more than one dir.
         by_slug: dict[str, list[str]] = {}
         for category_dir in sorted(p for p in docs_root.iterdir() if p.is_dir()):
-            by_slug.setdefault(slugify(category_dir.name, max_len=80), []).append(
-                category_dir.name)
+            by_slug.setdefault(slugify(category_dir.name, max_len=80), []).append(category_dir.name)
         for slug, names in sorted(by_slug.items()):
             if len(names) > 1:
                 quoted = ", ".join(repr(n) for n in sorted(names))
-                findings.append(DoctorFinding(
-                    "colliding-category-dirs", "warning", "docs",
-                    f"category directories {quoted} all map to slug '{slug}' — "
-                    "they render duplicate INDEX headers and merge ambiguously "
-                    "under the category filter",
-                    "merge them into one directory (or rename so their slugs "
-                    "differ)"))
+                findings.append(
+                    DoctorFinding(
+                        "colliding-category-dirs",
+                        "warning",
+                        "docs",
+                        f"category directories {quoted} all map to slug '{slug}' — "
+                        "they render duplicate INDEX headers and merge ambiguously "
+                        "under the category filter",
+                        "merge them into one directory (or rename so their slugs differ)",
+                    )
+                )
 
         # unknown-provider / custom-without-template: stored URL config that
         # makes shelf_url() return "" for every entry — the INDEX renders
@@ -1292,19 +1310,27 @@ class Shelf:
         # .docshelf.json; init_shelf validates the same thing up front.
         provider = self.config.provider or "github"
         if provider not in URL_PROVIDERS:
-            findings.append(DoctorFinding(
-                "unknown-provider", "error", SHELF_METADATA_FILENAME,
-                f"provider '{provider}' is not one of: "
-                + ", ".join(URL_PROVIDERS)
-                + " — every INDEX link renders empty",
-                "set a supported provider (init_shelf or edit the file)"))
+            findings.append(
+                DoctorFinding(
+                    "unknown-provider",
+                    "error",
+                    SHELF_METADATA_FILENAME,
+                    f"provider '{provider}' is not one of: "
+                    + ", ".join(URL_PROVIDERS)
+                    + " — every INDEX link renders empty",
+                    "set a supported provider (init_shelf or edit the file)",
+                )
+            )
         elif provider == "custom" and not self.config.url_template:
-            findings.append(DoctorFinding(
-                "custom-without-template", "error", SHELF_METADATA_FILENAME,
-                "provider 'custom' has no url_template — every INDEX link "
-                "renders empty",
-                "set url_template with {owner}/{repo}/{branch}/{path} "
-                "placeholders"))
+            findings.append(
+                DoctorFinding(
+                    "custom-without-template",
+                    "error",
+                    SHELF_METADATA_FILENAME,
+                    "provider 'custom' has no url_template — every INDEX link renders empty",
+                    "set url_template with {owner}/{repo}/{branch}/{path} placeholders",
+                )
+            )
 
         # docshelf-config-conflict: when a shelf.yml manifest (shelf-spec v0,
         # #63) is present it is the contract — flag any overlapping field it
@@ -1317,11 +1343,15 @@ class Shelf:
         if manifest is not None:
             conflicts = _manifest_config_conflicts(manifest, self.config)
             if conflicts:
-                findings.append(DoctorFinding(
-                    "docshelf-config-conflict", "warning", SHELF_METADATA_FILENAME,
-                    "; ".join(conflicts),
-                    "align .docshelf.json with shelf.yml — the manifest is the "
-                    "contract"))
+                findings.append(
+                    DoctorFinding(
+                        "docshelf-config-conflict",
+                        "warning",
+                        SHELF_METADATA_FILENAME,
+                        "; ".join(conflicts),
+                        "align .docshelf.json with shelf.yml — the manifest is the contract",
+                    )
+                )
 
         # uncommitted-split-dir: sections that exist only in this working copy
         # (#97). They are shelf content to scan(), which walks the filesystem,
@@ -1331,14 +1361,19 @@ class Shelf:
         # permanent `stale-index` with a fix that made things worse.
         uncommitted = uncommitted_split_dirs(self.root)
         for rel_dir in uncommitted:
-            findings.append(DoctorFinding(
-                "uncommitted-split-dir", "warning", rel_dir,
-                "split sections are not committed — they exist only in this "
-                "working copy, so INDEX and search rendered here cannot match "
-                "any other checkout",
-                "commit the directory, or delete it and re-add the document "
-                "with split=False — the sections are a copy of the parent, "
-                "which keeps all of them"))
+            findings.append(
+                DoctorFinding(
+                    "uncommitted-split-dir",
+                    "warning",
+                    rel_dir,
+                    "split sections are not committed — they exist only in this "
+                    "working copy, so INDEX and search rendered here cannot match "
+                    "any other checkout",
+                    "commit the directory, or delete it and re-add the document "
+                    "with split=False — the sections are a copy of the parent, "
+                    "which keeps all of them",
+                )
+            )
 
         # stale-index: INDEX.md content differs from a fresh render. Only
         # meaningful when both sides describe the same tree: with uncommitted
@@ -1348,9 +1383,12 @@ class Shelf:
         current = index_path.read_text(encoding="utf-8") if index_path.is_file() else None
         if not uncommitted and current != self._index_text(self.scan()):
             f = DoctorFinding(
-                "stale-index", "warning", "INDEX.md",
+                "stale-index",
+                "warning",
+                "INDEX.md",
                 "INDEX.md is out of date with the shelf contents",
-                "run rebuild_index")
+                "run rebuild_index",
+            )
             if fix:
                 f.fixed = True
             findings.append(f)
@@ -1358,8 +1396,11 @@ class Shelf:
         # The rebuild is suppressed for the same reason the hint is: it writes
         # the dead links itself, and doing that under `fix=True` — where the
         # caller asked for the *safe* subset — is worse than reporting.
-        if fix and not uncommitted and (structural_fix or any(
-                x.rule == "stale-index" for x in findings)):
+        if (
+            fix
+            and not uncommitted
+            and (structural_fix or any(x.rule == "stale-index" for x in findings))
+        ):
             self.rebuild_index()
 
         findings.sort(key=lambda x: (x.path, x.rule))

@@ -128,8 +128,7 @@ class AddDocumentInput(_BaseInput):
     )
     description: str = Field(
         default="",
-        description="Optional one-sentence description shown next to the entry "
-        "in INDEX.md.",
+        description="Optional one-sentence description shown next to the entry in INDEX.md.",
         max_length=500,
     )
     split: bool = Field(
@@ -230,8 +229,7 @@ class RemoveDocumentInput(_BaseInput):
     )
     document: str = Field(
         ...,
-        description="Filename ('foo.md'), slug ('foo'), or the human title "
-        "used at add time.",
+        description="Filename ('foo.md'), slug ('foo'), or the human title used at add time.",
         min_length=1,
         max_length=200,
     )
@@ -288,9 +286,7 @@ class RenameDocumentInput(_BaseInput):
 
 
 class RebuildIndexInput(_BaseInput):
-    shelf_path: str | None = Field(
-        default=None, description="Path to the shelf root directory."
-    )
+    shelf_path: str | None = Field(default=None, description="Path to the shelf root directory.")
 
 
 class DoctorInput(_BaseInput):
@@ -299,9 +295,7 @@ class DoctorInput(_BaseInput):
         description="Apply the safe fixes (prune stale meta entries, delete "
         "orphaned split dirs, rebuild INDEX). Other findings stay report-only.",
     )
-    shelf_path: str | None = Field(
-        default=None, description="Path to the shelf root directory."
-    )
+    shelf_path: str | None = Field(default=None, description="Path to the shelf root directory.")
 
 
 class SearchInput(_BaseInput):
@@ -349,8 +343,7 @@ class ConvertPdfInput(_BaseInput):
     )
     split: bool = Field(
         default=False,
-        description="If True, also split the converted Markdown by H2 into "
-        "a sibling subdirectory.",
+        description="If True, also split the converted Markdown by H2 into a sibling subdirectory.",
     )
 
 
@@ -441,9 +434,7 @@ def add_document(params: AddDocumentInput) -> dict:
         "status": "ok",
         "shelf_root": str(shelf.root),
         "document_path": result.document_path.relative_to(shelf.root).as_posix(),
-        "section_paths": [
-            p.relative_to(shelf.root).as_posix() for p in result.section_paths
-        ],
+        "section_paths": [p.relative_to(shelf.root).as_posix() for p in result.section_paths],
         "was_split": result.was_split,
         "section_count": len(result.section_paths),
         "converted_from_pdf": result.converted_from_pdf,
@@ -534,9 +525,7 @@ def remove_document(params: RemoveDocumentInput) -> dict:
     return {
         "status": "ok",
         "shelf_root": str(shelf.root),
-        "removed_paths": [
-            p.relative_to(shelf.root).as_posix() for p in result.removed_paths
-        ],
+        "removed_paths": [p.relative_to(shelf.root).as_posix() for p in result.removed_paths],
         "was_split": result.was_split,
         "dry_run": result.dry_run,
         "index_path": "INDEX.md",
@@ -584,9 +573,7 @@ def rebuild_index(params: RebuildIndexInput) -> dict:
     index_path = shelf.rebuild_index()
     entries = shelf.scan()
     warnings = [
-        {"document": doc, **_warning_dict(w)}
-        for doc, ws in shelf.lint_shelf().items()
-        for w in ws
+        {"document": doc, **_warning_dict(w)} for doc, ws in shelf.lint_shelf().items() for w in ws
     ]
     return {
         "status": "ok",

@@ -75,9 +75,7 @@ def test_add_document_wrapper_then_search(tmp_path: Path):
     assert add_out["status"] == "ok"
     assert add_out["index_path"] == "INDEX.md"
 
-    search_out = t.search(
-        t.SearchInput(query="BGP", max_results=5, shelf_path=shelf_path)
-    )
+    search_out = t.search(t.SearchInput(query="BGP", max_results=5, shelf_path=shelf_path))
     assert search_out["status"] == "ok"
     assert search_out["match_mode"] == "all"
     assert search_out["match_count"] >= 1
@@ -99,8 +97,12 @@ def test_add_document_wrapper_reports_overwritten(tmp_path: Path):
     def add(title, overwrite=False):
         return t.add_document(
             t.AddDocumentInput(
-                source_path=str(FIXTURE), category="docs", title=title,
-                split=False, overwrite=overwrite, shelf_path=shelf_path,
+                source_path=str(FIXTURE),
+                category="docs",
+                title=title,
+                split=False,
+                overwrite=overwrite,
+                shelf_path=shelf_path,
             )
         )
 
@@ -117,15 +119,21 @@ def test_add_document_wrapper_collision_serializes_as_error(tmp_path: Path):
     t.init_shelf(t.InitShelfInput(shelf_path=shelf_path, name="T"))
     t.add_document(
         t.AddDocumentInput(
-            source_path=str(FIXTURE), category="docs", title="C++ Guide!",
-            split=False, shelf_path=shelf_path,
+            source_path=str(FIXTURE),
+            category="docs",
+            title="C++ Guide!",
+            split=False,
+            shelf_path=shelf_path,
         )
     )
     out = json.loads(
         server.add_document(
             t.AddDocumentInput(
-                source_path=str(FIXTURE), category="docs", title="C++ Guide?",
-                split=False, shelf_path=shelf_path,
+                source_path=str(FIXTURE),
+                category="docs",
+                title="C++ Guide?",
+                split=False,
+                shelf_path=shelf_path,
             )
         )
     )
@@ -136,8 +144,12 @@ def test_add_document_wrapper_collision_serializes_as_error(tmp_path: Path):
     # overwrite=true goes through and reports the replacement.
     ok = t.add_document(
         t.AddDocumentInput(
-            source_path=str(FIXTURE), category="docs", title="C++ Guide?",
-            split=False, overwrite=True, shelf_path=shelf_path,
+            source_path=str(FIXTURE),
+            category="docs",
+            title="C++ Guide?",
+            split=False,
+            overwrite=True,
+            shelf_path=shelf_path,
         )
     )
     assert ok["status"] == "ok" and ok["overwritten"] is True
@@ -146,14 +158,15 @@ def test_add_document_wrapper_collision_serializes_as_error(tmp_path: Path):
 def test_read_document_wrapper(tmp_path: Path):
     shelf_path = str(tmp_path / "s")
     t.init_shelf(
-        t.InitShelfInput(
-            shelf_path=shelf_path, name="T", github_remote="https://github.com/me/r"
-        )
+        t.InitShelfInput(shelf_path=shelf_path, name="T", github_remote="https://github.com/me/r")
     )
     t.add_document(
         t.AddDocumentInput(
-            source_path=str(FIXTURE), category="docs", title="Sample",
-            split=False, shelf_path=shelf_path,
+            source_path=str(FIXTURE),
+            category="docs",
+            title="Sample",
+            split=False,
+            shelf_path=shelf_path,
         )
     )
     out = t.read_document(
@@ -209,9 +222,7 @@ def test_add_directory_wrapper_surfaces_empty_conversion_warning(tmp_path: Path)
     )
     by_file = {a["file"]: a for a in out["added"]}
     assert by_file["scan.md"]["warning_count"] >= 1
-    assert any(
-        w["rule"] == "empty-conversion" for w in by_file["scan.md"]["warnings"]
-    )
+    assert any(w["rule"] == "empty-conversion" for w in by_file["scan.md"]["warnings"])
     assert by_file["real.md"]["warning_count"] == 0
 
 
@@ -265,14 +276,20 @@ def test_rename_document_wrapper(tmp_path: Path):
     t.init_shelf(t.InitShelfInput(shelf_path=shelf_path, name="T"))
     t.add_document(
         t.AddDocumentInput(
-            source_path=str(FIXTURE), category="docs", title="Before",
-            split=False, shelf_path=shelf_path,
+            source_path=str(FIXTURE),
+            category="docs",
+            title="Before",
+            split=False,
+            shelf_path=shelf_path,
         )
     )
     out = t.rename_document(
         t.RenameDocumentInput(
-            category="docs", document="Before", new_title="After",
-            new_category="archive", shelf_path=shelf_path,
+            category="docs",
+            document="Before",
+            new_title="After",
+            new_category="archive",
+            shelf_path=shelf_path,
         )
     )
     assert out["status"] == "ok" and out["moved"] is True
@@ -290,14 +307,19 @@ def test_rename_document_wrapper_collision_serializes_as_error(tmp_path: Path):
     for title in ("One", "Two"):
         t.add_document(
             t.AddDocumentInput(
-                source_path=str(FIXTURE), category="docs", title=title,
-                split=False, shelf_path=shelf_path,
+                source_path=str(FIXTURE),
+                category="docs",
+                title=title,
+                split=False,
+                shelf_path=shelf_path,
             )
         )
     out = json.loads(
         server.rename_document(
             t.RenameDocumentInput(
-                category="docs", document="One", new_title="Two",
+                category="docs",
+                document="One",
+                new_title="Two",
                 shelf_path=shelf_path,
             )
         )
@@ -310,14 +332,15 @@ def test_list_documents_category_filter_accepts_human_form(tmp_path: Path):
     t.init_shelf(t.InitShelfInput(shelf_path=shelf_path, name="T"))
     t.add_document(
         t.AddDocumentInput(
-            source_path=str(FIXTURE), category="research-papers", title="P",
-            split=False, shelf_path=shelf_path,
+            source_path=str(FIXTURE),
+            category="research-papers",
+            title="P",
+            split=False,
+            shelf_path=shelf_path,
         )
     )
     # The human display form must resolve to the on-disk slug directory.
-    out = t.list_documents(
-        t.ListDocumentsInput(category="Research Papers", shelf_path=shelf_path)
-    )
+    out = t.list_documents(t.ListDocumentsInput(category="Research Papers", shelf_path=shelf_path))
     assert out["total_documents"] == 1
     assert "research-papers" in out["categories"]
 
@@ -331,18 +354,14 @@ def test_list_documents_category_filter_matches_non_slug_dir(tmp_path: Path):
     cat.mkdir(parents=True)
     (cat / "x.md").write_text("# X\n\nbody text here\n", encoding="utf-8")
 
-    out = t.list_documents(
-        t.ListDocumentsInput(category="Mixed Case", shelf_path=shelf_path)
-    )
+    out = t.list_documents(t.ListDocumentsInput(category="Mixed Case", shelf_path=shelf_path))
     assert out["total_documents"] == 1
     assert "Mixed Case" in out["categories"]
 
 
 def test_list_documents_wrapper(tmp_path: Path):
     shelf_path = str(tmp_path / "s")
-    t.init_shelf(
-        t.InitShelfInput(shelf_path=shelf_path, name="T", default_categories=["x"])
-    )
+    t.init_shelf(t.InitShelfInput(shelf_path=shelf_path, name="T", default_categories=["x"]))
     t.add_document(
         t.AddDocumentInput(
             source_path=str(FIXTURE),
@@ -373,8 +392,11 @@ def test_doctor_wrapper(tmp_path: Path):
     t.init_shelf(t.InitShelfInput(shelf_path=shelf_path, name="T"))
     t.add_document(
         t.AddDocumentInput(
-            source_path=str(FIXTURE), category="docs", title="Keeper",
-            split=False, shelf_path=shelf_path,
+            source_path=str(FIXTURE),
+            category="docs",
+            title="Keeper",
+            split=False,
+            shelf_path=shelf_path,
         )
     )
     # Clean shelf: no findings.
@@ -409,9 +431,7 @@ def test_rebuild_index_wrapper(tmp_path: Path):
             t.RemoveDocumentInput(category="c", document="d", shelf_path=p)
         ),
         lambda p: t.add_document(
-            t.AddDocumentInput(
-                source_path=str(FIXTURE), category="c", title="T", shelf_path=p
-            )
+            t.AddDocumentInput(source_path=str(FIXTURE), category="c", title="T", shelf_path=p)
         ),
     ],
 )
@@ -484,9 +504,7 @@ def test_convert_pdf_not_guarded(tmp_path: Path):
     bad = tmp_path / "not.txt"
     bad.write_text("x")
     with pytest.raises((ConversionError, ValueError)):
-        t.convert_pdf(
-            t.ConvertPdfInput(pdf_path=str(bad), out_dir=str(tmp_path / "out"))
-        )
+        t.convert_pdf(t.ConvertPdfInput(pdf_path=str(bad), out_dir=str(tmp_path / "out")))
 
 
 def test_input_validation_rejects_extra_fields():
@@ -558,8 +576,11 @@ async def test_shelf_files_exposed_as_resources(tmp_path: Path):
     t.init_shelf(t.InitShelfInput(shelf_path=shelf_path, name="Res Shelf"))
     t.add_document(
         t.AddDocumentInput(
-            source_path=str(FIXTURE), category="docs", title="Sample",
-            split=False, shelf_path=shelf_path,
+            source_path=str(FIXTURE),
+            category="docs",
+            title="Sample",
+            split=False,
+            shelf_path=shelf_path,
         )
     )
 
@@ -586,8 +607,11 @@ async def test_resource_sync_drops_removed_documents(tmp_path: Path):
     t.init_shelf(t.InitShelfInput(shelf_path=shelf_path, name="R"))
     t.add_document(
         t.AddDocumentInput(
-            source_path=str(FIXTURE), category="docs", title="Gone",
-            split=False, shelf_path=shelf_path,
+            source_path=str(FIXTURE),
+            category="docs",
+            title="Gone",
+            split=False,
+            shelf_path=shelf_path,
         )
     )
     server.register_shelf_resources(Shelf(shelf_path))

@@ -15,16 +15,12 @@ from docshelf_mcp.core.indexer import (
 
 
 def test_raw_github_url_https():
-    url = raw_github_url(
-        "https://github.com/me/myrepo", "main", "docs/foo.md"
-    )
+    url = raw_github_url("https://github.com/me/myrepo", "main", "docs/foo.md")
     assert url == "https://raw.githubusercontent.com/me/myrepo/main/docs/foo.md"
 
 
 def test_raw_github_url_strips_dot_git():
-    url = raw_github_url(
-        "git@github.com:me/myrepo.git", "main", "docs/foo.md"
-    )
+    url = raw_github_url("git@github.com:me/myrepo.git", "main", "docs/foo.md")
     assert url == "https://raw.githubusercontent.com/me/myrepo/main/docs/foo.md"
 
 
@@ -268,8 +264,7 @@ def test_shelf_url_custom_template():
     )
     # A template that needs no remote still works (path/branch only).
     assert (
-        shelf_url("custom", "", "main", "https://s3/{path}", "docs/a.md")
-        == "https://s3/docs/a.md"
+        shelf_url("custom", "", "main", "https://s3/{path}", "docs/a.md") == "https://s3/docs/a.md"
     )
 
 
@@ -304,9 +299,7 @@ def test_build_index_entry_links_title_and_prints_filename_once():
     somewhere else could not pass by accident.
     """
     entries = [
-        DocumentEntry(
-            "routers", "Mikrotik Router", "Manual", "docs/routers/mikrotik.md", 2048
-        ),
+        DocumentEntry("routers", "Mikrotik Router", "Manual", "docs/routers/mikrotik.md", 2048),
     ]
     out = build_index("S", entries, remote="https://github.com/me/r")
     line = next(ln for ln in out.splitlines() if "Mikrotik Router" in ln)
@@ -334,7 +327,11 @@ def test_build_index_entry_without_url_keeps_filename_label():
 
 def test_build_subindex_gitlab_provider():
     entry = DocumentEntry(
-        "routers", "R", "", "docs/routers/r.md", 4000,
+        "routers",
+        "R",
+        "",
+        "docs/routers/r.md",
+        4000,
         section_paths=["docs/routers/r/001-a.md", "docs/routers/r/002-b.md"],
     )
     out = build_subindex(entry, remote="https://gitlab.com/g/p", provider="gitlab")

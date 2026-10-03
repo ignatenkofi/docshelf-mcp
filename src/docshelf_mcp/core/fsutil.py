@@ -33,9 +33,7 @@ def atomic_write_text(path: Path | str, text: str, *, encoding: str = "utf-8") -
     directory = path.parent
     directory.mkdir(parents=True, exist_ok=True)
 
-    fd, tmp_name = tempfile.mkstemp(
-        dir=directory, prefix=f".{path.name}.", suffix=".tmp"
-    )
+    fd, tmp_name = tempfile.mkstemp(dir=directory, prefix=f".{path.name}.", suffix=".tmp")
     try:
         # mkstemp creates the file 0600; reproduce the normal umask-based mode
         # so a file that may be committed / served isn't left owner-only.

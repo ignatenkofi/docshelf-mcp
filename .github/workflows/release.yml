@@ -44,7 +44,9 @@ jobs:
           test "$PKG" = "$TAG" || { echo "tag v$TAG != __version__ $PKG"; exit 1; }
 
       - name: Lint with ruff
-        run: ruff check src tests
+        run: |
+          ruff check .
+          ruff format --check .
 
       - name: Run tests
         run: |

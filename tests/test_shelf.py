@@ -93,18 +93,14 @@ def test_add_document_with_slug_decouples_filename_from_title(tmp_path: Path):
     assert "docs/sessions/2026-07-22-m1-build-sprint.md" in idx
 
     # .meta.json keys the slug filename and stores the Cyrillic title verbatim.
-    meta = json.loads(
-        (shelf.root / "docs" / "sessions" / ".meta.json").read_text(encoding="utf-8")
-    )
+    meta = json.loads((shelf.root / "docs" / "sessions" / ".meta.json").read_text(encoding="utf-8"))
     assert meta["2026-07-22-m1-build-sprint.md"]["title"] == "Сессия: M1 собран за день"
 
 
 def test_add_document_blank_slug_falls_back_to_title(tmp_path: Path):
     # A None/blank slug preserves today's title-derived filename exactly.
     shelf = Shelf(tmp_path / "s").init(name="S", default_categories=["docs"])
-    from_none = shelf.add_document(
-        FIXTURE, category="docs", title="Plain Title", split=False
-    )
+    from_none = shelf.add_document(FIXTURE, category="docs", title="Plain Title", split=False)
     assert from_none.document_path.name == "plain-title.md"
 
     from_blank = shelf.add_document(
@@ -118,9 +114,7 @@ def test_add_document_with_split(tmp_path: Path):
     # Build a synthetic 'big' MD that crosses the 50 KB threshold.
     big_md = tmp_path / "big.md"
     chapter_body = "Lorem ipsum dolor sit amet. " * 500  # ~14 KB per chapter
-    text = "# Title\n\n" + "\n\n".join(
-        f"## Section {i}\n\n{chapter_body}" for i in range(5)
-    )
+    text = "# Title\n\n" + "\n\n".join(f"## Section {i}\n\n{chapter_body}" for i in range(5))
     big_md.write_text(text, encoding="utf-8")
     assert len(big_md.read_bytes()) > 50 * 1024  # sanity check on the fixture
 
@@ -141,9 +135,7 @@ def test_add_document_with_split(tmp_path: Path):
 def test_split_document_gets_subindex(tmp_path: Path):
     big_md = tmp_path / "big.md"
     chapter_body = "Lorem ipsum dolor sit amet. " * 500
-    text = "# Title\n\n" + "\n\n".join(
-        f"## Section {i}\n\n{chapter_body}" for i in range(5)
-    )
+    text = "# Title\n\n" + "\n\n".join(f"## Section {i}\n\n{chapter_body}" for i in range(5))
     big_md.write_text(text, encoding="utf-8")
 
     shelf = Shelf(tmp_path / "s").init(name="S", remote="https://github.com/me/r")
@@ -160,16 +152,16 @@ def test_split_document_gets_subindex(tmp_path: Path):
     idx = (shelf.root / "INDEX.md").read_text(encoding="utf-8")
     assert "sections: 5" in idx or "sections: 6" in idx  # preamble may add one
     assert shelf.search("Lorem")  # body text is findable...
-    assert not any(
-        "SUBINDEX" in h["relative_path"] for h in shelf.search("Big Document sections")
-    )
+    assert not any("SUBINDEX" in h["relative_path"] for h in shelf.search("Big Document sections"))
 
 
 def test_add_document_rebuilds_index_exactly_once(tmp_path: Path, monkeypatch):
     shelf = Shelf(tmp_path / "s").init(name="S")
     calls = {"n": 0}
     real = shelf.rebuild_index
-    monkeypatch.setattr(shelf, "rebuild_index", lambda: (calls.__setitem__("n", calls["n"] + 1), real())[1])
+    monkeypatch.setattr(
+        shelf, "rebuild_index", lambda: (calls.__setitem__("n", calls["n"] + 1), real())[1]
+    )
 
     shelf.add_document(FIXTURE, category="docs", title="One", split=False)
     assert calls["n"] == 1  # not 2 — the tools layer no longer double-rebuilds
@@ -193,7 +185,9 @@ def test_add_directory_ingests_all_and_rebuilds_once(tmp_path: Path, monkeypatch
     shelf = Shelf(tmp_path / "s").init(name="S", remote="https://github.com/me/r")
     calls = {"n": 0}
     real = shelf.rebuild_index
-    monkeypatch.setattr(shelf, "rebuild_index", lambda: (calls.__setitem__("n", calls["n"] + 1), real())[1])
+    monkeypatch.setattr(
+        shelf, "rebuild_index", lambda: (calls.__setitem__("n", calls["n"] + 1), real())[1]
+    )
 
     results = shelf.add_directory(src, category="docs")
     assert [r["status"] for r in results] == ["ok", "ok", "ok"]
@@ -298,9 +292,7 @@ def test_add_document_overwrite_flag_replaces_colliding_document(tmp_path: Path)
     b.write_text("# Beta\n\nUNIQUE_BETA_BODY\n", encoding="utf-8")
 
     shelf.add_document(a, category="c", title="C++ Guide!", split=False)
-    result = shelf.add_document(
-        b, category="c", title="C++ Guide?", split=False, overwrite=True
-    )
+    result = shelf.add_document(b, category="c", title="C++ Guide?", split=False, overwrite=True)
     assert result.overwritten is True
     body = (shelf.root / "docs" / "c" / "c-guide.md").read_text()
     assert "UNIQUE_BETA_BODY" in body and "UNIQUE_ALPHA_BODY" not in body
@@ -463,8 +455,7 @@ def test_add_html_document(tmp_path: Path):
     pytest.importorskip("markdownify")
     page = tmp_path / "manual.html"
     page.write_text(
-        "<html><body><h1>Router Manual</h1><p>VLAN configuration notes.</p>"
-        "</body></html>",
+        "<html><body><h1>Router Manual</h1><p>VLAN configuration notes.</p></body></html>",
         encoding="utf-8",
     )
     shelf = Shelf(tmp_path / "s").init(name="S", remote="https://github.com/me/r")
@@ -813,9 +804,7 @@ def test_rename_document_retitles_and_moves_meta(tmp_path: Path):
     shelf = Shelf(tmp_path / "s").init(name="S", remote="https://github.com/me/r")
     shelf.add_document(FIXTURE, category="docs", title="Old Title", split=False)
 
-    result = shelf.rename_document(
-        category="docs", document="Old Title", new_title="New Title"
-    )
+    result = shelf.rename_document(category="docs", document="Old Title", new_title="New Title")
     assert result.moved is True
     cat = shelf.root / "docs" / "docs"
     assert not (cat / "old-title.md").exists()
@@ -830,14 +819,13 @@ def test_rename_document_retitles_and_moves_meta(tmp_path: Path):
 def test_rename_document_moves_category_with_split(tmp_path: Path):
     big = tmp_path / "big.md"
     body = "Lorem ipsum dolor sit amet. " * 500
-    big.write_text("# T\n\n" + "\n\n".join(f"## S{i}\n\n{body}" for i in range(4)),
-                   encoding="utf-8")
+    big.write_text(
+        "# T\n\n" + "\n\n".join(f"## S{i}\n\n{body}" for i in range(4)), encoding="utf-8"
+    )
     shelf = Shelf(tmp_path / "s").init(name="S")
     shelf.add_document(big, category="misc", title="Manual", split=True)
 
-    result = shelf.rename_document(
-        category="misc", document="Manual", new_category="routers"
-    )
+    result = shelf.rename_document(category="misc", document="Manual", new_category="routers")
     assert result.moved and result.was_split
     old_cat = shelf.root / "docs" / "misc"
     new_cat = shelf.root / "docs" / "routers"
@@ -854,8 +842,7 @@ def test_rename_document_moves_category_with_split(tmp_path: Path):
 
 def test_rename_document_description_only_is_in_place(tmp_path: Path):
     shelf = Shelf(tmp_path / "s").init(name="S")
-    shelf.add_document(FIXTURE, category="docs", title="Doc", description="old",
-                       split=False)
+    shelf.add_document(FIXTURE, category="docs", title="Doc", description="old", split=False)
     result = shelf.rename_document(
         category="docs", document="Doc", new_description="a much better description"
     )
@@ -952,10 +939,15 @@ def _git(root: Path, *args: str) -> subprocess.CompletedProcess:
     # never writes to it.
     return subprocess.run(
         [
-            "git", "-C", str(root),
-            "-c", "user.name=docshelf test",
-            "-c", "user.email=test@docshelf.invalid",
-            "-c", "commit.gpgsign=false",
+            "git",
+            "-C",
+            str(root),
+            "-c",
+            "user.name=docshelf test",
+            "-c",
+            "user.email=test@docshelf.invalid",
+            "-c",
+            "commit.gpgsign=false",
             *args,
         ],
         capture_output=True,
@@ -975,8 +967,7 @@ def _split_shelf_with_uncommitted_sections(tmp_path: Path) -> tuple[Shelf, Path]
     big_md = tmp_path / "big.md"
     chapter_body = "Lorem ipsum dolor sit amet. " * 500
     big_md.write_text(
-        "# Title\n\n"
-        + "\n\n".join(f"## Section {i}\n\n{chapter_body}" for i in range(5)),
+        "# Title\n\n" + "\n\n".join(f"## Section {i}\n\n{chapter_body}" for i in range(5)),
         encoding="utf-8",
     )
 
@@ -1045,8 +1036,7 @@ def test_doctor_leaves_committed_split_dirs_alone(tmp_path: Path):
     assert "uncommitted-split-dir" not in rules
     assert "stale-index" in rules  # INDEX still carries the bot's render
     assert any(
-        f.rule == "stale-index" and f.suggested_fix == "run rebuild_index"
-        for f in shelf.doctor()
+        f.rule == "stale-index" and f.suggested_fix == "run rebuild_index" for f in shelf.doctor()
     )
 
 
@@ -1098,14 +1088,15 @@ def test_gitlab_provider_enriches_search_and_read(tmp_path: Path):
     )
     t.add_document(
         t.AddDocumentInput(
-            source_path=str(FIXTURE), category="docs", title="Sample",
-            split=False, shelf_path=shelf_path,
+            source_path=str(FIXTURE),
+            category="docs",
+            title="Sample",
+            split=False,
+            shelf_path=shelf_path,
         )
     )
     hit = t.search(t.SearchInput(query="BGP", shelf_path=shelf_path))["hits"][0]
-    assert hit["raw_url"] == (
-        "https://gitlab.com/grp/proj/-/raw/main/docs/docs/sample.md"
-    )
+    assert hit["raw_url"] == ("https://gitlab.com/grp/proj/-/raw/main/docs/docs/sample.md")
 
 
 # -- issue #65: hand-edited .meta.json of any JSON shape must not crash ------
@@ -1158,8 +1149,9 @@ def test_rename_refuses_when_split_target_dir_exists(tmp_path: Path):
 
     big = tmp_path / "big.md"
     body = "Lorem ipsum dolor sit amet. " * 500
-    big.write_text("# T\n\n" + "\n\n".join(f"## S{i}\n\n{body}" for i in range(4)),
-                   encoding="utf-8")
+    big.write_text(
+        "# T\n\n" + "\n\n".join(f"## S{i}\n\n{body}" for i in range(4)), encoding="utf-8"
+    )
     shelf = Shelf(tmp_path / "s").init(name="S")
     shelf.add_document(big, category="guides", title="Old Title", split=True)
     cat = shelf.root / "docs" / "guides"
@@ -1168,9 +1160,7 @@ def test_rename_refuses_when_split_target_dir_exists(tmp_path: Path):
     (orphan / "001-junk.md").write_text("junk\n", encoding="utf-8")
 
     with pytest.raises(DocumentExistsError):
-        shelf.rename_document(
-            category="guides", document="Old Title", new_title="New Title"
-        )
+        shelf.rename_document(category="guides", document="Old Title", new_title="New Title")
     # Disk untouched: parent doc, its sections and meta all still at old slug.
     assert (cat / "old-title.md").is_file()
     assert (cat / "old-title").is_dir()
@@ -1206,15 +1196,13 @@ def test_doctor_flags_hand_edited_provider_config(tmp_path: Path):
     cfg["provider"] = "giltab"  # typo'd by hand
     cfg_path.write_text(json.dumps(cfg), encoding="utf-8")
     findings = Shelf(shelf.root).doctor()
-    assert any(f.rule == "unknown-provider" and f.severity == "error"
-               for f in findings)
+    assert any(f.rule == "unknown-provider" and f.severity == "error" for f in findings)
 
     cfg["provider"] = "custom"
     cfg["url_template"] = ""
     cfg_path.write_text(json.dumps(cfg), encoding="utf-8")
     findings = Shelf(shelf.root).doctor()
-    assert any(f.rule == "custom-without-template" and f.severity == "error"
-               for f in findings)
+    assert any(f.rule == "custom-without-template" and f.severity == "error" for f in findings)
 
 
 def test_readd_splittable_content_with_split_false_keeps_split(tmp_path: Path):
@@ -1223,9 +1211,7 @@ def test_readd_splittable_content_with_split_false_keeps_split(tmp_path: Path):
     # qualifying, not on the split argument alone.
     big_md = tmp_path / "big.md"
     chapter_body = "Lorem ipsum dolor sit amet. " * 500
-    text = "# Title\n\n" + "\n\n".join(
-        f"## Section {i}\n\n{chapter_body}" for i in range(5)
-    )
+    text = "# Title\n\n" + "\n\n".join(f"## Section {i}\n\n{chapter_body}" for i in range(5))
     big_md.write_text(text, encoding="utf-8")
 
     shelf = Shelf(tmp_path / "s").init(name="S")
@@ -1235,9 +1221,7 @@ def test_readd_splittable_content_with_split_false_keeps_split(tmp_path: Path):
     assert split_dir.is_dir()
 
     # Re-add identical (still-splittable) content, this time with split=False.
-    second = shelf.add_document(
-        big_md, category="big", title="Doc", split=False, overwrite=True
-    )
+    second = shelf.add_document(big_md, category="big", title="Doc", split=False, overwrite=True)
     assert not second.unsplit  # nothing was destroyed
     assert split_dir.is_dir()  # the valid split survives
     assert list(split_dir.glob("*.md"))
@@ -1248,9 +1232,7 @@ def test_readd_small_content_with_split_false_wipes_stale_split(tmp_path: Path):
     # stale section files are removed and the destruction is surfaced.
     big_md = tmp_path / "big.md"
     chapter_body = "Lorem ipsum dolor sit amet. " * 500
-    text = "# Title\n\n" + "\n\n".join(
-        f"## Section {i}\n\n{chapter_body}" for i in range(5)
-    )
+    text = "# Title\n\n" + "\n\n".join(f"## Section {i}\n\n{chapter_body}" for i in range(5))
     big_md.write_text(text, encoding="utf-8")
 
     shelf = Shelf(tmp_path / "s").init(name="S")
@@ -1260,9 +1242,7 @@ def test_readd_small_content_with_split_false_wipes_stale_split(tmp_path: Path):
 
     small = tmp_path / "small.md"
     small.write_text("# Title\n\ntiny body\n", encoding="utf-8")
-    second = shelf.add_document(
-        small, category="big", title="Doc", split=False, overwrite=True
-    )
+    second = shelf.add_document(small, category="big", title="Doc", split=False, overwrite=True)
     assert second.unsplit  # the stale split was wiped, and it's signaled
     assert not split_dir.exists()
 
@@ -1284,9 +1264,7 @@ def test_doctor_flags_colliding_category_dirs(tmp_path: Path):
     # A shelf with distinct slugs raises no such finding.
     shelf2 = Shelf(tmp_path / "s2").init(name="S2")
     shelf2.add_document(FIXTURE, category="papers", title="P", split=False)
-    assert not [
-        f for f in shelf2.doctor() if f.rule == "colliding-category-dirs"
-    ]
+    assert not [f for f in shelf2.doctor() if f.rule == "colliding-category-dirs"]
 
 
 # -- issue #63: recognize shelf.yml as the shelf-spec v0 contract ------------
@@ -1341,13 +1319,9 @@ def test_init_manifest_is_idempotent_and_preserves_edits(tmp_path: Path):
 def test_scaffolded_manifest_raises_no_config_conflict(tmp_path: Path):
     # A freshly-scaffolded manifest agrees with .docshelf.json by construction,
     # so doctor must not flag docshelf-config-conflict.
-    shelf = Shelf(tmp_path / "s").init(
-        name="S", remote="https://github.com/me/r", manifest=True
-    )
+    shelf = Shelf(tmp_path / "s").init(name="S", remote="https://github.com/me/r", manifest=True)
     shelf.add_document(FIXTURE, category="docs", title="Sample", split=False)
-    assert not any(
-        f.rule == "docshelf-config-conflict" for f in shelf.doctor()
-    )
+    assert not any(f.rule == "docshelf-config-conflict" for f in shelf.doctor())
 
 
 def test_doctor_ignores_absent_manifest(tmp_path: Path):
@@ -1355,9 +1329,7 @@ def test_doctor_ignores_absent_manifest(tmp_path: Path):
     # a shelf.yml is never flagged for the conflict rule.
     shelf = Shelf(tmp_path / "s").init(name="S")
     shelf.add_document(FIXTURE, category="docs", title="Sample", split=False)
-    assert not any(
-        f.rule == "docshelf-config-conflict" for f in shelf.doctor()
-    )
+    assert not any(f.rule == "docshelf-config-conflict" for f in shelf.doctor())
 
 
 def test_doctor_flags_manifest_name_conflict(tmp_path: Path):
@@ -1380,9 +1352,7 @@ def test_doctor_flags_manifest_name_conflict(tmp_path: Path):
 def test_doctor_flags_manifest_category_conflict(tmp_path: Path):
     # .docshelf.json's category_order lists a category the manifest does not
     # declare → the manifest's explicit list is the contract, so it's drift.
-    shelf = Shelf(tmp_path / "s").init(
-        name="S", default_categories=["alpha", "beta"]
-    )
+    shelf = Shelf(tmp_path / "s").init(name="S", default_categories=["alpha", "beta"])
     (shelf.root / SHELF_MANIFEST_FILENAME).write_text(
         'spec_version: "0.1"\nmode: single\nname: S\ncategories:\n  - alpha\n',
         encoding="utf-8",
@@ -1400,9 +1370,7 @@ def test_doctor_no_conflict_when_manifest_omits_categories(tmp_path: Path):
     shelf = Shelf(tmp_path / "s").init(
         name="S", default_categories=["alpha", "beta"], manifest=True
     )
-    assert not any(
-        f.rule == "docshelf-config-conflict" for f in shelf.doctor()
-    )
+    assert not any(f.rule == "docshelf-config-conflict" for f in shelf.doctor())
 
 
 def test_doctor_tolerates_malformed_manifest(tmp_path: Path):
@@ -1412,28 +1380,20 @@ def test_doctor_tolerates_malformed_manifest(tmp_path: Path):
     shelf = Shelf(tmp_path / "s").init(name="S")
     shelf.add_document(FIXTURE, category="docs", title="Sample", split=False)
 
-    (shelf.root / SHELF_MANIFEST_FILENAME).write_text(
-        "- not\n- a\n- mapping\n", encoding="utf-8"
-    )
-    assert not any(
-        f.rule == "docshelf-config-conflict" for f in Shelf(shelf.root).doctor()
-    )
+    (shelf.root / SHELF_MANIFEST_FILENAME).write_text("- not\n- a\n- mapping\n", encoding="utf-8")
+    assert not any(f.rule == "docshelf-config-conflict" for f in Shelf(shelf.root).doctor())
 
     (shelf.root / SHELF_MANIFEST_FILENAME).write_text(
         "spec_version: '0.1'\n  mode: [unbalanced\n", encoding="utf-8"
     )
-    assert not any(
-        f.rule == "docshelf-config-conflict" for f in Shelf(shelf.root).doctor()
-    )
+    assert not any(f.rule == "docshelf-config-conflict" for f in Shelf(shelf.root).doctor())
 
 
 def test_init_shelf_tool_scaffolds_manifest_and_reports_it(tmp_path: Path):
     from docshelf_mcp import tools as t
 
     shelf_path = str(tmp_path / "s")
-    out = t.init_shelf(
-        t.InitShelfInput(shelf_path=shelf_path, name="Docs", manifest=True)
-    )
+    out = t.init_shelf(t.InitShelfInput(shelf_path=shelf_path, name="Docs", manifest=True))
     assert out["manifest"] is True
     assert (tmp_path / "s" / SHELF_MANIFEST_FILENAME).is_file()
 

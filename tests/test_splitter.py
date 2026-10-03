@@ -67,7 +67,7 @@ def test_should_split_threshold():
     big = "## a\n" + ("body\n" * 1000) + "## b\nmore\n"
     assert should_split(big, threshold_bytes=50) is True
     # Big text with too few H2s — don't split.
-    big_no_h2 = ("body\n" * 5000)
+    big_no_h2 = "body\n" * 5000
     assert should_split(big_no_h2, threshold_bytes=50) is False
 
 
