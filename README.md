@@ -74,6 +74,13 @@ pip install "docshelf-mcp[formats]"   # PDF + DOCX + HTML + EPUB; or [docx] / [h
 The `pdf` extra pulls the PyMuPDF chain (~260 MB installed); a consumer that
 only reads and writes Markdown does not need it, which is why it is not core.
 
+> **Breaking since 0.5.0:** PDF conversion needs the `[pdf]` extra. Up to
+> 0.4.1 a plain `pip install docshelf-mcp` converted PDFs because
+> `pymupdf4llm` was a core dependency; it is now optional (#93). Upgrading
+> from 0.4.x and still adding PDFs? Install `docshelf-mcp[pdf]` (or
+> `[formats]`), otherwise `add_document` on a `.pdf` raises
+> `ConversionError` telling you the same.
+
 Optional high-quality PDF engine (pulls ~2 GB of PyTorch — only if you need it):
 
 ```bash

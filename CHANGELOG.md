@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-10-06
+
 ### Changed
 - **The conformance job validates the manifest docshelf writes, strictly**
   (shelf-spec ADR-0005). Since 0.4.0 the job scaffolded a shelf with
@@ -51,8 +53,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   branch now has a test of its own.
 
   Release note: this is a **breaking** change for installers — a plain
-  `pip install docshelf-mcp` no longer converts PDFs. The next release is a
-  minor bump (0.5.0), not a patch.
+  `pip install docshelf-mcp` no longer converts PDFs. That is why this
+  release is a minor bump (0.5.0), not a patch.
 
 ### Fixed
 - **The `marker-pdf` ceiling is `<2` again.** 0.4.0 introduced the ceiling

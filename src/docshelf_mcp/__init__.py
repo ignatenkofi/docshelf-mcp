@@ -18,5 +18,5 @@ from docshelf_mcp.core.shelf import Shelf
 
 #: Single source of truth for the package version — pyproject.toml reads it
 #: via hatch's dynamic version ([tool.hatch.version] path = ...).
-__version__ = "0.4.1"
+__version__ = "0.5.0"
 __all__ = ["Shelf", "__version__"]
