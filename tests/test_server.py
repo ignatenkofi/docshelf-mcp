@@ -569,6 +569,22 @@ def test_convert_pdf_refuses_a_foreign_stem_dir(tmp_path: Path, stub_pdf: Path):
     assert payload["status"] == "error" and payload["type"] == "SplitDirConflictError"
 
 
+def test_convert_pdf_refuses_a_regular_file_at_the_stem_path(tmp_path: Path, stub_pdf: Path):
+    # A plain file named like the split directory blocks the split as well; the
+    # refusal must still come before projects.md is written.
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "projects").write_text("a file, not a folder\n", encoding="utf-8")
+    params = t.ConvertPdfInput(pdf_path=str(stub_pdf), out_dir=str(out), split=True)
+
+    with pytest.raises(FileExistsError) as excinfo:
+        t.convert_pdf(params)
+
+    assert type(excinfo.value).__name__ == "SplitDirConflictError"
+    assert (out / "projects").read_text(encoding="utf-8") == "a file, not a folder\n"
+    assert not (out / "projects.md").exists()
+
+
 def test_convert_pdf_without_split_leaves_a_foreign_stem_dir_alone(tmp_path: Path, stub_pdf):
     # Without split the directory is never touched, so there is nothing to refuse.
     out = tmp_path / "out"

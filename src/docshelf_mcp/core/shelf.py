@@ -601,10 +601,10 @@ class Shelf:
             raise SplitDirConflictError(
                 f"{split_dir.relative_to(self.root).as_posix()} exists and is not "
                 "a docshelf split directory (it holds something other than "
-                f"NNN-*.md sections and SUBINDEX.md); adding title {title!r} "
-                "would delete it with the document's sections. Choose a distinct "
-                "title/slug, or move the directory aside — overwrite=True does "
-                "not apply to it."
+                "NNN-*.md sections and SUBINDEX.md, or cannot be read); adding "
+                f"title {title!r} would delete it with the document's sections. "
+                "Choose a distinct title/slug, or move the directory aside — "
+                "overwrite=True does not apply to it."
             )
 
         raw_md = source_to_markdown(source, quality=quality)
@@ -1308,7 +1308,8 @@ class Shelf:
                         rel(sub),
                         "directory has no parent document and is not a docshelf "
                         "split directory (it holds something other than NNN-*.md "
-                        "sections and SUBINDEX.md) — fix=True leaves it in place",
+                        "sections and SUBINDEX.md, or cannot be read) — fix=True "
+                        "leaves it in place",
                         "move it out of docs/, or declare it in shelf.yml "
                         "extra_dirs — doctor only deletes directories docshelf wrote",
                     )

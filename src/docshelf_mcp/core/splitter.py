@@ -251,14 +251,23 @@ def is_split_dir(path: Path) -> bool:
     files are all ``NNN-*.md`` sections, plus optionally ``SUBINDEX.md`` and OS
     litter (``.DS_Store`` and the like). An empty directory counts. This is
     the line docshelf may delete up to: anything else is someone else's.
+
+    A directory that cannot be read is someone else's too: False, never an
+    :class:`OSError`. The callers include the read-only ``doctor()``, which
+    reports such a directory and must not raise on it.
     """
-    if path.is_symlink() or not path.is_dir():
+    try:
+        if path.is_symlink() or not path.is_dir():
+            return False
+        # No read bit: the listing fails. No search bit: the listing works, but
+        # stat of an entry fails, and Path.is_dir can re-raise EACCES.
+        for child in path.iterdir():
+            if child.is_dir():
+                return False
+            if child.name not in _SPLIT_DIR_EXTRAS and not _SECTION_FILE_RE.match(child.name):
+                return False
+    except OSError:
         return False
-    for child in path.iterdir():
-        if child.is_dir():
-            return False
-        if child.name not in _SPLIT_DIR_EXTRAS and not _SECTION_FILE_RE.match(child.name):
-            return False
     return True
 
 
@@ -288,9 +297,9 @@ def write_split_files(
         if not is_split_dir(target_dir):
             raise SplitDirConflictError(
                 f"{target_dir} exists and is not a docshelf split directory (it "
-                "holds something other than NNN-*.md sections and SUBINDEX.md); "
-                "writing the split would delete it. Move it aside or pick "
-                "another name."
+                "holds something other than NNN-*.md sections and SUBINDEX.md, "
+                "or cannot be read); writing the split would delete it. Move it "
+                "aside or pick another name."
             )
         shutil.rmtree(target_dir)
     target_dir.mkdir(parents=True, exist_ok=True)

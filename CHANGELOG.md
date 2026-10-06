@@ -30,7 +30,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `remove_document` leaves the directory, omits it from `removed_paths` and
   reports `was_split=False`; `doctor` still reports it as
   `orphaned-split-dir` but leaves it with `fixed=False`, and no longer calls
-  it `split-out-of-sync`. A re-run over docshelf's own split stays
+  it `split-out-of-sync`. A directory that cannot be read counts as not a
+  split: refused or reported like any other, never a `PermissionError` out
+  of the read-only `doctor()`. A re-run over docshelf's own split stays
   idempotent everywhere.
 - **`doctor` honours `shelf.yml` `extra_dirs`.** Directories the
   shelf-spec manifest declares as sidecars were reported as orphaned splits

@@ -111,7 +111,8 @@ def test_is_split_dir_accepts_what_docshelf_writes(tmp_path: Path):
     assert is_split_dir(out)
     # The per-document navigation page and Finder/Explorer litter are still ours.
     (out / "SUBINDEX.md").write_text("# nav\n", encoding="utf-8")
-    (out / ".DS_Store").write_bytes(b"\0")
+    for litter in (".DS_Store", "Thumbs.db", "desktop.ini"):
+        (out / litter).write_bytes(b"\0")
     assert is_split_dir(out)
     # A section number past 999 is still a section (f"{idx:03d}" widens).
     (out / "1000-late.md").write_text("x\n", encoding="utf-8")
@@ -124,8 +125,18 @@ def test_is_split_dir_accepts_what_docshelf_writes(tmp_path: Path):
 @pytest.mark.parametrize(
     "foreign",
     # "009-nested.md/" is a directory named like a section: only the
-    # no-subdirectories rule can tell it apart.
-    ["diagram.png", "notes.md", "001-x.txt", "sub/", "009-nested.md/"],
+    # no-subdirectories rule can tell it apart. A backup copy of a section and
+    # a number narrower than write_split_files ever writes are not sections.
+    [
+        "diagram.png",
+        "notes.md",
+        "001-x.txt",
+        "001-x.md.bak",
+        "001-x.md~",
+        "1-x.md",
+        "sub/",
+        "009-nested.md/",
+    ],
 )
 def test_is_split_dir_rejects_anything_else(tmp_path: Path, foreign: str):
     target = tmp_path / "doc"
@@ -158,6 +169,41 @@ def test_is_split_dir_false_for_a_symlinked_directory(tmp_path: Path):
         pytest.skip("symlinks are not available on this filesystem/account")
     assert is_split_dir(real)
     assert not is_split_dir(link)
+
+
+@pytest.mark.parametrize("denied", ["listing", "stat"])
+def test_is_split_dir_false_for_an_unreadable_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, denied: str
+):
+    # A directory the process may not read proves nothing is docshelf's: it is
+    # someone else's, not an OSError out of doctor(fix=False). Both ways the OS
+    # refuses: no read bit (the listing fails) and no search bit (the listing
+    # works, but stat of an entry fails — Path.is_dir re-raises EACCES). chmod
+    # does neither as root or on Windows, so the refusal is simulated.
+    target = tmp_path / "doc"
+    write_split_files(split_by_h2(SAMPLE), target)
+    assert is_split_dir(target)
+    denial = PermissionError(13, "Permission denied")
+    if denied == "listing":
+        real_iterdir = Path.iterdir
+
+        def iterdir(self: Path):
+            if self == target:
+                raise denial
+            return real_iterdir(self)
+
+        monkeypatch.setattr(Path, "iterdir", iterdir)
+    else:
+        real_is_dir = Path.is_dir
+
+        def is_dir(self: Path, *args, **kwargs):
+            if self.parent == target:
+                raise denial
+            return real_is_dir(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "is_dir", is_dir)
+
+    assert is_split_dir(target) is False
 
 
 def test_write_split_files_refuses_a_foreign_directory(tmp_path: Path):

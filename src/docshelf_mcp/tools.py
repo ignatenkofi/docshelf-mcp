@@ -711,9 +711,9 @@ def convert_pdf(params: ConvertPdfInput) -> dict:
     if sections and split_dir.exists() and not is_split_dir(split_dir):
         raise SplitDirConflictError(
             f"{split_dir} exists and is not a split directory from an earlier "
-            "run (it holds something other than NNN-*.md sections); splitting "
-            "would delete it. Move it aside, choose another out_dir, or pass "
-            "split=false."
+            "run (it holds something other than NNN-*.md sections, or cannot "
+            "be read); splitting would delete it. Move it aside, choose another "
+            "out_dir, or pass split=false."
         )
     out_md.write_text(cleaned, encoding="utf-8")
 

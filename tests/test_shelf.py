@@ -1498,6 +1498,22 @@ def test_add_document_split_refuses_foreign_same_stem_dir(tmp_path: Path, monkey
     assert converted == []
 
 
+def test_add_document_split_refuses_a_regular_file_at_the_split_path(tmp_path: Path):
+    # A plain file named like the split directory blocks the split as well.
+    # The pre-flight must catch it too (exists, not is_dir): otherwise the
+    # refusal only comes from write_split_files, after images.md is written.
+    shelf = Shelf(tmp_path / "s").init(name="S", default_categories=["guides"])
+    cat = shelf.root / "docs" / "guides"
+    (cat / "images").write_text("a file, not a folder\n", encoding="utf-8")
+    big = _big_markdown(tmp_path / "big.md", "Images")
+
+    err = _refusal(lambda: shelf.add_document(big, category="guides", title="images"))
+
+    assert (cat / "images").read_text(encoding="utf-8") == "a file, not a folder\n"
+    assert type(err).__name__ == "SplitDirConflictError"
+    assert not (cat / "images.md").exists()
+
+
 def test_add_document_resplits_over_its_own_split_dir(tmp_path: Path):
     # The guard must not refuse docshelf's own output: a split carrying its
     # SUBINDEX.md and OS litter is re-split in place, as before.
@@ -1606,3 +1622,61 @@ def test_doctor_still_flags_a_real_split_out_of_sync(tmp_path: Path):
 
     rules = {(f.rule, f.path) for f in shelf.doctor()}
     assert ("split-out-of-sync", "docs/big/doc.md") in rules
+
+
+def _deny_listing(monkeypatch: pytest.MonkeyPatch, directory: Path) -> None:
+    """Make ``directory`` unlistable, as chmod 000 does for an ordinary user.
+
+    chmod proves nothing as root or on Windows, so the OS refusal is simulated
+    at ``Path.iterdir`` — the call is_split_dir lists through.
+    """
+    real_iterdir = Path.iterdir
+
+    def iterdir(self: Path):
+        if self == directory:
+            raise PermissionError(13, "Permission denied", str(self))
+        return real_iterdir(self)
+
+    monkeypatch.setattr(Path, "iterdir", iterdir)
+
+
+@pytest.mark.parametrize("fix", [False, True])
+def test_doctor_reports_an_unreadable_dir_instead_of_raising(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fix: bool
+):
+    # Telling a split from someone else's directory means listing it. One the
+    # process may not read (another user's folder, chmod 000) made the
+    # read-only doctor() raise PermissionError — and memshelf's push gate calls
+    # it directly — where it used to be reported. Unreadable proves nothing is
+    # docshelf's: reported as orphaned-split-dir and left in place.
+    shelf = Shelf(tmp_path / "s").init(name="S", default_categories=["guides"])
+    shelf.add_document(FIXTURE, category="guides", title="setup", split=False)
+    private = shelf.root / "docs" / "guides" / "private"
+    private.mkdir()
+    (private / "note.txt").write_text("mine\n", encoding="utf-8")
+    _deny_listing(monkeypatch, private)
+
+    findings = shelf.doctor(fix=fix)
+
+    hits = [(f.rule, f.fixed) for f in findings if f.path == "docs/guides/private"]
+    assert hits == [("orphaned-split-dir", False)]
+    assert (private / "note.txt").is_file()
+
+
+def test_add_document_refuses_an_unreadable_same_stem_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    # The same unreadable directory under a document's stem: the clear refusal,
+    # not a raw PermissionError, and nothing written.
+    shelf = Shelf(tmp_path / "s").init(name="S", default_categories=["guides"])
+    cat = shelf.root / "docs" / "guides"
+    private = cat / "private"
+    private.mkdir()
+    _deny_listing(monkeypatch, private)
+
+    err = _refusal(
+        lambda: shelf.add_document(FIXTURE, category="guides", title="private", split=False)
+    )
+
+    assert type(err).__name__ == "SplitDirConflictError"
+    assert not (cat / "private.md").exists()
