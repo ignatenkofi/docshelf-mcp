@@ -1,0 +1,13 @@
+{
+  "version": 2,
+  "entries": [
+    {
+      "fingerprint": "30521b6145c6c696177765edb323a59fafe586c23af9c06e3afc94bd4a0ab606",
+      "note": "pyproject.toml: email (builtin/email-001) — maintainer contact in [project] authors, public on PyPI"
+    },
+    {
+      "fingerprint": "1633450e88d40972c082cf0740928a721dd935ee72b2e54c681b3a4773bab6b8",
+      "note": "tests/test_shelf.py: email (builtin/email-001) — synthetic git user.email of the test repository"
+    }
+  ]
+}

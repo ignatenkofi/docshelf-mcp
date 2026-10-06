@@ -41,7 +41,11 @@ real workflow that's currently painful.
    ```
 
    CI runs the same on every Python in the `ci.yml` matrix: 3.10 through
-   3.13 on Linux, plus one smoke run each on Windows and macOS.
+   3.13 on Linux, plus one smoke run each on Windows and macOS. The smoke
+   job also runs `pii-mcp verify .` against `tests/pii-baseline.json`: no
+   real e-mail addresses, phone numbers or tokens in the tree. A new
+   synthetic value that trips it goes into the baseline by fingerprint
+   (`pii-mcp verify . --format json` prints it), with a note saying why.
 
 5. Add a short note to `CHANGELOG.md` under the `[Unreleased]` section.
 6. Open the PR. Reference the issue it addresses, if any.
