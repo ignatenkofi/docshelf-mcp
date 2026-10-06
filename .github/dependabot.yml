@@ -37,5 +37,14 @@ updates:
       # `dev` extra (it pulls PyTorch), so CI never imports it and a green
       # check says nothing about the new major. Minor/patch bumps still
       # arrive as PRs; the major waits for a deliberate port with a real run.
+      #
+      # Known advisories of the `high-quality` extra wait behind this ignore
+      # (#112): transformers 4.57.x (6 PYSEC ids, fixes in 5.x) is held `<5`
+      # by marker-pdf 1.x/surya-ocr and clears with the marker-pdf 2.x port;
+      # pillow 10.4.x (17 PYSEC ids, fixes from 12.1.1) is held `<11` by
+      # marker-pdf 1.x AND 2.x alike and waits for upstream to lift that
+      # ceiling. Core and the `dev` extra pull neither. Reproduce:
+      #   uv export --frozen --no-hashes --no-emit-project \
+      #     --extra high-quality -o req.txt && uvx pip-audit -r req.txt
       - dependency-name: "marker-pdf"
         update-types: ["version-update:semver-major"]
