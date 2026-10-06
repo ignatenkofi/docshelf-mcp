@@ -28,12 +28,15 @@ from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
+from docshelf_mcp.core.indexer import SUBINDEX_FILENAME
 from docshelf_mcp.core.slugify import slugify
 
 __all__ = [
     "clean_markdown",
     "split_by_h2",
     "write_split_files",
+    "is_split_dir",
+    "SplitDirConflictError",
     "should_split",
     "lint_sections",
     "SectionWarning",
@@ -221,6 +224,44 @@ def split_by_h2(text: str) -> list[tuple[str, str]]:
     return [(title, "\n".join(body).rstrip() + "\n") for title, body in sections]
 
 
+#: A section file as :func:`write_split_files` names it. ``\d{3,}``, not
+#: ``\d{3}``: ``f"{idx:03d}"`` widens past section 999.
+_SECTION_FILE_RE = re.compile(r"^\d{3,}-.+\.md$")
+
+#: Files a split directory may hold besides its sections: the per-document
+#: navigation page, and the litter Finder/Explorer leave in any opened folder.
+_SPLIT_DIR_EXTRAS = frozenset({SUBINDEX_FILENAME, ".DS_Store", "Thumbs.db", "desktop.ini"})
+
+
+class SplitDirConflictError(FileExistsError):
+    """A split's target directory exists and is not a docshelf split directory.
+
+    The split rewrites its directory wholesale, so a same-named directory
+    holding anything else (an ``images/`` folder, a sidecar of originals, the
+    user's notes) would be deleted. Raised instead, before anything is touched.
+    A :class:`FileExistsError` rather than a ``DocumentExistsError``: no
+    ``overwrite`` flag resolves it — the directory has to be moved aside.
+    """
+
+
+def is_split_dir(path: Path) -> bool:
+    """Whether ``path`` is a directory :func:`write_split_files` could have written.
+
+    True only for a real (non-symlink) directory with no subdirectories whose
+    files are all ``NNN-*.md`` sections, plus optionally ``SUBINDEX.md`` and OS
+    litter (``.DS_Store`` and the like). An empty directory counts. This is
+    the line docshelf may delete up to: anything else is someone else's.
+    """
+    if path.is_symlink() or not path.is_dir():
+        return False
+    for child in path.iterdir():
+        if child.is_dir():
+            return False
+        if child.name not in _SPLIT_DIR_EXTRAS and not _SECTION_FILE_RE.match(child.name):
+            return False
+    return True
+
+
 def write_split_files(
     sections: list[tuple[str, str]],
     target_dir: Path,
@@ -233,12 +274,24 @@ def write_split_files(
         sections: Output of :func:`split_by_h2`.
         target_dir: Output directory. Created if missing.
         clean_existing: If True (default), nukes ``target_dir`` first so the
-            split is fully idempotent on re-run.
+            split is fully idempotent on re-run — but only when it is a split
+            directory (:func:`is_split_dir`).
 
     Returns:
         List of written :class:`Path` objects, in section order.
+
+    Raises:
+        SplitDirConflictError: ``clean_existing`` and ``target_dir`` exists but
+            is not a split directory. Nothing is deleted or written.
     """
     if clean_existing and target_dir.exists():
+        if not is_split_dir(target_dir):
+            raise SplitDirConflictError(
+                f"{target_dir} exists and is not a docshelf split directory (it "
+                "holds something other than NNN-*.md sections and SUBINDEX.md); "
+                "writing the split would delete it. Move it aside or pick "
+                "another name."
+            )
         shutil.rmtree(target_dir)
     target_dir.mkdir(parents=True, exist_ok=True)
 

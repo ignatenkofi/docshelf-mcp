@@ -64,6 +64,8 @@ The response includes `document_path`, `section_paths`, and `next_steps` (the su
 
 Pass an optional `slug` to decouple the on-disk filename from the display title. By default the filename is the slugified `title`, so a non-latin title yields a non-latin filename. With `slug` set, the document is written to `docs/<category>/<slug>.md` (the slug is itself slugified for filesystem safety) while `title` stays the INDEX/heading text untouched — e.g. `"slug": "2026-07-22-m1-build-sprint"` with `"title": "Сессия: M1 собран за день"` lands a latin, date-prefixed file with the Cyrillic title in `INDEX.md`. A `null`/blank slug keeps the title-derived filename.
 
+A document's sections live in `docs/<category>/<stem>/`, and docshelf rewrites that directory wholesale — on a re-split, and by deleting it when re-added content no longer qualifies for splitting. So `add_document` refuses with `SplitDirConflictError` when a directory of that name already exists and is **not** a docshelf split directory: it holds anything besides `NNN-*.md` section files and `SUBINDEX.md` (an `images/` folder, a sidecar of originals, your own notes), or a subdirectory. The check runs before conversion, nothing is written, and `overwrite: true` does not lift it — `overwrite` replaces a document, not a directory. Pick a distinct title/`slug`, or move the directory aside.
+
 ### `docshelf_add_directory`
 
 Onboard a whole folder in one call. Scans `source_dir` (non-recursively) for `patterns` — **every supported input type by default** (Markdown, PDF, DOCX, HTML, EPUB; the globs are derived from the same `SUPPORTED_INPUT_SUFFIXES` the converter dispatches on) — adds each file under `category` with a title derived from its filename, and rebuilds `INDEX.md` **once** for the whole batch. Pass your own `patterns` to narrow the set (e.g. `["*.pdf"]` for PDFs only).
@@ -92,7 +94,7 @@ Remove a document — its file, its split-section directory, and its `.meta.json
 }
 ```
 
-The response lists `removed_paths` relative to the shelf root. As with `add_document`, the git commit / push step stays with you.
+The response lists `removed_paths` relative to the shelf root. As with `add_document`, the git commit / push step stays with you. A same-name directory next to the document that is not a docshelf split directory (anything besides `NNN-*.md` sections and `SUBINDEX.md` inside) is not treated as the document's sections: it stays in place, is not listed in `removed_paths`, and `was_split` is `false` — under `dry_run` too.
 
 ### `docshelf_rebuild_index`
 
@@ -108,11 +110,15 @@ Check the shelf for drift and optionally apply the safe fixes. Read-only by defa
 
 ```jsonc
 {
-  "fix": false  // true = prune stale meta entries, delete orphaned split dirs, rebuild INDEX
+  "fix": false  // true = prune stale meta entries, delete orphaned split dirs (split-shaped only), rebuild INDEX
 }
 ```
 
 Reports `findings` (each with `rule`, `severity`, `path`, `detail`, `suggested_fix`, `fixed`) plus a `by_rule` summary. Rules: `stale-meta-entry`, `orphaned-split-dir`, `split-out-of-sync`, `uncommitted-split-dir`, `stale-index`, `duplicate-title`, `empty-category`, `corrupt-meta`, `meta-shape`, `colliding-category-dirs`, `unknown-provider`, `custom-without-template`, and `docshelf-config-conflict`. Findings are sorted so runs diff cleanly. With `fix=true`, only the safe subset is applied; everything else stays report-only.
+
+`orphaned-split-dir` (warning) names any directory under a category that has no parent `<stem>.md`. `fix=true` deletes it **only when it is shaped like a docshelf split** — nothing but `NNN-*.md` section files and `SUBINDEX.md` (plus `.DS_Store`-style OS litter), no subdirectories. Any other orphaned directory — an `images/` folder, a sidecar of originals — is reported with the same rule but left in place with `fixed: false`; the finding says so. `split-out-of-sync` likewise only compares a document against a same-name directory of that shape. Since this means `fix=true` can delete directories, the tool is annotated `destructiveHint: true`.
+
+Directories a [shelf-spec](https://github.com/ignatenkofi/openshelf) `shelf.yml` declares in `extra_dirs` (shelf-root-relative, e.g. `docs/attachments` or `docs/guides/originals/`) are skipped the way the spec's validator skips them: never reported as an orphaned split or an empty category, and never deleted. Declare a sidecar there to keep it next to the documents without a finding.
 
 `uncommitted-split-dir` (warning) fires on a git shelf when a split directory next to a document has nothing tracked inside it — the sections exist only in that working copy, so an `INDEX.md` rendered there can never equal one rendered from the committed tree. While it is present, `stale-index` is not reported and `fix=true` does not rebuild the index: the rebuild would write links no other checkout can follow. Commit the directory, or delete it and re-add the document with `split=false` — the sections are a copy of the parent, which keeps all of them. A shelf that committed its sections, and a shelf that is not a git repository, are never flagged.
 
@@ -167,6 +173,8 @@ Standalone PDF → Markdown. Doesn't touch any shelf; useful for one-off convers
   "split": false
 }
 ```
+
+Writes `<out_dir>/<stem>.md`, replacing a file of that name. With `"split": true` (and content that qualifies for splitting) the H2 sections go to `<out_dir>/<stem>/`, which is rewritten on every run — so a re-run over its own output is idempotent, but the call refuses with `SplitDirConflictError` (and writes nothing, not even `<stem>.md`) when `<stem>/` already exists and is not a split from an earlier run: it holds anything besides `NNN-*.md` section files. With `"split": false` an existing `<stem>/` is never touched.
 
 ## MCP Resources
 
@@ -239,4 +247,4 @@ Keep the shelf repo public so raw URLs work. If you have private notes that shou
 
 ### Idempotent re-runs
 
-`add_document` overwrites. Re-running it on the same source updates the entry in place. Re-running `rebuild_index` is a pure render — safe to call as often as you like.
+`add_document` overwrites. Re-running it on the same source updates the entry in place (its own split directory included; a same-name directory docshelf did not write is refused, never overwritten — see `docshelf_add_document`). Re-running `rebuild_index` is a pure render — safe to call as often as you like.

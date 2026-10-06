@@ -2,8 +2,12 @@
 
 from pathlib import Path
 
+import pytest
+
 from docshelf_mcp.core.splitter import (
+    SplitDirConflictError,
     clean_markdown,
+    is_split_dir,
     lint_sections,
     should_split,
     split_by_h2,
@@ -96,6 +100,77 @@ def test_write_split_files_idempotent(tmp_path: Path):
 
     assert paths_second != paths_first
     assert len(paths_second) == 2
+
+
+# ------------------------------------------------- foreign directories (is_split_dir)
+
+
+def test_is_split_dir_accepts_what_docshelf_writes(tmp_path: Path):
+    out = tmp_path / "doc"
+    write_split_files(split_by_h2(SAMPLE), out)
+    assert is_split_dir(out)
+    # The per-document navigation page and Finder/Explorer litter are still ours.
+    (out / "SUBINDEX.md").write_text("# nav\n", encoding="utf-8")
+    (out / ".DS_Store").write_bytes(b"\0")
+    assert is_split_dir(out)
+    # A section number past 999 is still a section (f"{idx:03d}" widens).
+    (out / "1000-late.md").write_text("x\n", encoding="utf-8")
+    assert is_split_dir(out)
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    assert is_split_dir(empty)
+
+
+@pytest.mark.parametrize(
+    "foreign",
+    # "009-nested.md/" is a directory named like a section: only the
+    # no-subdirectories rule can tell it apart.
+    ["diagram.png", "notes.md", "001-x.txt", "sub/", "009-nested.md/"],
+)
+def test_is_split_dir_rejects_anything_else(tmp_path: Path, foreign: str):
+    target = tmp_path / "doc"
+    write_split_files(split_by_h2(SAMPLE), target)
+    if foreign.endswith("/"):
+        nested = target / foreign.rstrip("/")
+        nested.mkdir()
+        (nested / "keep.txt").write_text("not a section\n", encoding="utf-8")
+    else:
+        (target / foreign).write_text("not a section\n", encoding="utf-8")
+    assert not is_split_dir(target)
+
+
+def test_is_split_dir_false_for_missing_path_and_file(tmp_path: Path):
+    assert not is_split_dir(tmp_path / "absent")
+    a_file = tmp_path / "doc"
+    a_file.write_text("x\n", encoding="utf-8")
+    assert not is_split_dir(a_file)
+
+
+def test_is_split_dir_false_for_a_symlinked_directory(tmp_path: Path):
+    # docshelf never writes a symlink, and rmtree refuses one outright — a
+    # caller would crash half-way instead of leaving it alone.
+    real = tmp_path / "real"
+    write_split_files(split_by_h2(SAMPLE), real)
+    link = tmp_path / "doc"
+    try:
+        link.symlink_to(real, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks are not available on this filesystem/account")
+    assert is_split_dir(real)
+    assert not is_split_dir(link)
+
+
+def test_write_split_files_refuses_a_foreign_directory(tmp_path: Path):
+    # The idempotent rewrite deletes the target first. A directory holding
+    # anything but sections is not a previous split — it must survive intact.
+    target = tmp_path / "projects"
+    target.mkdir()
+    (target / "my-unrelated-notes.txt").write_text("precious\n", encoding="utf-8")
+
+    with pytest.raises(SplitDirConflictError, match="not a docshelf split directory"):
+        write_split_files(split_by_h2(SAMPLE), target)
+    assert sorted(p.name for p in target.iterdir()) == ["my-unrelated-notes.txt"]
+    assert issubclass(SplitDirConflictError, FileExistsError)
 
 
 # --------------------------------------------------------------- fence-awareness

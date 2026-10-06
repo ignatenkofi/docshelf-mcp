@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **docshelf no longer deletes directories it did not write.** A document's
+  sections live in `<stem>/` next to it, and five paths removed that
+  directory with `shutil.rmtree` on nothing more than its name:
+  `add_document` (re-split, and the wipe of stale sections when content no
+  longer qualifies for splitting — with `overwrite=True` as much as without),
+  `remove_document`, `doctor(fix=True)` for any directory without a parent
+  document, and `convert_pdf(split=True)` in an arbitrary `out_dir`. An
+  `images/` folder next to `images.md`, a sidecar of originals, or the
+  user's own notes in `out_dir/<stem>/` went with it, unrecoverable outside
+  git. Measured on the reproductions before the fix: a foreign file in
+  `<stem>/` did not survive any of the five.
+
+  A directory is now docshelf's to delete only when it is shaped like a
+  split — `NNN-*.md` section files, `SUBINDEX.md` and OS litter
+  (`.DS_Store`, `Thumbs.db`, `desktop.ini`), no subdirectories, not a
+  symlink (`splitter.is_split_dir`). Otherwise `add_document` and
+  `convert_pdf(split=True)` refuse with the new `SplitDirConflictError`
+  (a `FileExistsError`, not a `DocumentExistsError`: no `overwrite` resolves
+  it) before writing anything; `write_split_files` refuses the same way;
+  `remove_document` leaves the directory, omits it from `removed_paths` and
+  reports `was_split=False`; `doctor` still reports it as
+  `orphaned-split-dir` but leaves it with `fixed=False`, and no longer calls
+  it `split-out-of-sync`. A re-run over docshelf's own split stays
+  idempotent everywhere.
+- **`doctor` honours `shelf.yml` `extra_dirs`.** Directories the
+  shelf-spec manifest declares as sidecars were reported as orphaned splits
+  or empty categories, and `fix=True` deleted the former; they are now
+  skipped, as in the spec's own validator.
+
+### Changed
+- **`docshelf_doctor` is annotated `destructiveHint: true`.** `fix=true`
+  deletes directories (orphaned splits), so a client deciding whether to
+  ask before calling it was told the opposite of what it does.
+
 ## [0.5.0] — 2026-10-06
 
 ### Added

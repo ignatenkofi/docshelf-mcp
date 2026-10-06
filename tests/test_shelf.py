@@ -1413,3 +1413,196 @@ def test_init_shelf_tool_default_writes_no_manifest(tmp_path: Path):
     out = t.init_shelf(t.InitShelfInput(shelf_path=shelf_path, name="Docs"))
     assert out["manifest"] is False
     assert not (tmp_path / "s" / SHELF_MANIFEST_FILENAME).exists()
+
+
+# -- foreign same-stem directories are never deleted as if they were splits --
+
+
+def _big_markdown(path: Path, title: str = "Title") -> Path:
+    chapter_body = "Lorem ipsum dolor sit amet. " * 500
+    path.write_text(
+        f"# {title}\n\n" + "\n\n".join(f"## Section {i}\n\n{chapter_body}" for i in range(5)),
+        encoding="utf-8",
+    )
+    return path
+
+
+def _asset_dir(category_dir: Path, name: str = "images") -> Path:
+    """A same-stem directory docshelf did not write: a document's image assets."""
+    d = category_dir / name
+    d.mkdir(parents=True)
+    (d / "diagram.png").write_bytes(b"\x89PNG fake")
+    return d
+
+
+def _refusal(call) -> BaseException | None:
+    """Run ``call``; return the FileExistsError it raised, or None if it returned.
+
+    Callers assert on the disk *before* the exception: the code before the
+    guard returned normally — after deleting the directory — so the survival
+    assertion is the one that has to go red there.
+    """
+    try:
+        call()
+    except FileExistsError as exc:
+        return exc
+    return None
+
+
+@pytest.mark.parametrize("overwrite", [False, True])
+def test_add_document_unsplit_refuses_foreign_same_stem_dir(tmp_path: Path, overwrite: bool):
+    # A small document titled like an asset directory took the "no longer
+    # splittable, wipe the stale split" branch and rmtree'd the user's
+    # images/. overwrite=True replaces a document; it never deletes a directory.
+    shelf = Shelf(tmp_path / "s").init(name="S", default_categories=["guides"])
+    cat = shelf.root / "docs" / "guides"
+    images = _asset_dir(cat)
+    src = tmp_path / "images-src.md"
+    src.write_text("# Images\n\nHow we store images.\n", encoding="utf-8")
+
+    err = _refusal(
+        lambda: shelf.add_document(src, category="guides", title="images", overwrite=overwrite)
+    )
+
+    assert (images / "diagram.png").is_file()
+    assert type(err).__name__ == "SplitDirConflictError"
+    assert "docs/guides/images" in str(err)
+    # Refused before anything was written: no half-added document.
+    assert not (cat / "images.md").exists()
+    assert not (cat / ".meta.json").exists()
+
+
+def test_add_document_split_refuses_foreign_same_stem_dir(tmp_path: Path, monkeypatch):
+    # Same trap on the split branch: write_split_files' idempotent rewrite
+    # deleted the directory first. The refusal comes before conversion, so the
+    # parent .md is not left behind without its sections.
+    from docshelf_mcp.core import shelf as shelf_mod
+
+    shelf = Shelf(tmp_path / "s").init(name="S", default_categories=["guides"])
+    cat = shelf.root / "docs" / "guides"
+    images = _asset_dir(cat)
+    big = _big_markdown(tmp_path / "big.md", "Images")
+    converted: list[Path] = []
+    real = shelf_mod.source_to_markdown
+    monkeypatch.setattr(
+        shelf_mod,
+        "source_to_markdown",
+        lambda source, **kw: (converted.append(source), real(source, **kw))[1],
+    )
+
+    err = _refusal(lambda: shelf.add_document(big, category="guides", title="images"))
+
+    assert sorted(p.name for p in images.iterdir()) == ["diagram.png"]
+    assert type(err).__name__ == "SplitDirConflictError"
+    assert not (cat / "images.md").exists()
+    assert converted == []
+
+
+def test_add_document_resplits_over_its_own_split_dir(tmp_path: Path):
+    # The guard must not refuse docshelf's own output: a split carrying its
+    # SUBINDEX.md and OS litter is re-split in place, as before.
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    big = _big_markdown(tmp_path / "big.md")
+    first = shelf.add_document(big, category="big", title="Doc")
+    split_dir = first.document_path.parent / first.document_path.stem
+    (split_dir / "SUBINDEX.md").write_text("# nav\n", encoding="utf-8")
+    (split_dir / ".DS_Store").write_bytes(b"\0")
+
+    second = shelf.add_document(big, category="big", title="Doc")
+    assert second.was_split and second.overwritten
+    assert [p.name for p in second.section_paths] == [p.name for p in first.section_paths]
+
+
+def test_remove_document_leaves_foreign_same_stem_dir(tmp_path: Path):
+    # remove_document took any same-stem directory for the document's
+    # sections. An images/ created next to images.md after the add is not the
+    # document's: it stays, and neither the removal nor its dry run lists it.
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    src = tmp_path / "images-src.md"
+    src.write_text("# Images\n\nHow we store images.\n", encoding="utf-8")
+    shelf.add_document(src, category="guides", title="images")
+    cat = shelf.root / "docs" / "guides"
+    images = _asset_dir(cat)
+
+    preview = shelf.remove_document(category="guides", document="images", dry_run=True)
+    result = shelf.remove_document(category="guides", document="images")
+
+    assert (images / "diagram.png").is_file()
+    assert not (cat / "images.md").exists()
+    assert result.removed_paths == [cat / "images.md"] and not result.was_split
+    assert preview.removed_paths == result.removed_paths and not preview.was_split
+
+
+def test_doctor_fix_reports_but_keeps_a_foreign_orphan_dir(tmp_path: Path):
+    # doctor(fix=True) — "the safe subset" — deleted every directory without a
+    # parent document, a document's referenced images/ included. The rule name
+    # stays orphaned-split-dir (spec parity); only a split-shaped one is fixed.
+    shelf = Shelf(tmp_path / "s").init(name="S", default_categories=["guides"])
+    src = tmp_path / "guide-src.md"
+    src.write_text("# Setup\n\n![diagram](images/diagram.png)\n\nBody.\n", encoding="utf-8")
+    shelf.add_document(src, category="guides", title="setup")
+    cat = shelf.root / "docs" / "guides"
+    images = _asset_dir(cat)
+    orphan = cat / "gone"
+    orphan.mkdir()
+    (orphan / "001-x.md").write_text("## x\n", encoding="utf-8")
+
+    fixed = shelf.doctor(fix=True)
+
+    assert (images / "diagram.png").is_file()
+    assert not orphan.exists()  # a real orphaned split is still cleaned up
+    by_path = {f.path: f for f in fixed if f.rule == "orphaned-split-dir"}
+    assert by_path["docs/guides/gone"].fixed is True
+    assert by_path["docs/guides/images"].fixed is False
+    assert "not a docshelf split directory" in by_path["docs/guides/images"].detail
+    # Left in place, not forgotten: the next run still names it.
+    again = [(f.rule, f.path) for f in shelf.doctor()]
+    assert ("orphaned-split-dir", "docs/guides/images") in again
+
+
+def test_doctor_skips_directories_declared_in_extra_dirs(tmp_path: Path):
+    # shelf-spec §2/§9.1: a sidecar declared in shelf.yml `extra_dirs` is
+    # exempt from orphaned-split-dir (openshelf's validator skips it). doctor
+    # never read the key: it reported the sidecar and fix=True deleted it.
+    shelf = Shelf(tmp_path / "s").init(name="S", default_categories=["guides"], manifest=True)
+    manifest = shelf.root / SHELF_MANIFEST_FILENAME
+    manifest.write_text(
+        manifest.read_text(encoding="utf-8")
+        + "extra_dirs:\n  - docs/guides/originals/\n  - docs/attachments\n",
+        encoding="utf-8",
+    )
+    shelf.add_document(FIXTURE, category="guides", title="setup", split=False)
+    originals = shelf.root / "docs" / "guides" / "originals"
+    originals.mkdir()
+    (originals / "setup.pdf").write_bytes(b"%PDF-1.4 original")
+    attachments = shelf.root / "docs" / "attachments"
+    attachments.mkdir()
+    (attachments / "scan.pdf").write_bytes(b"%PDF-1.4 scan")
+
+    findings = shelf.doctor(fix=True)
+
+    assert (originals / "setup.pdf").is_file()
+    declared = {"docs/guides/originals", "docs/attachments"}
+    assert [f for f in findings if f.path in declared] == []
+
+
+def test_doctor_does_not_call_a_foreign_same_stem_dir_out_of_sync(tmp_path: Path):
+    # split-out-of-sync compared any same-stem directory with a fresh split
+    # and prescribed "re-add the document", which now (rightly) refuses.
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    src = tmp_path / "images-src.md"
+    src.write_text("# Images\n\nHow we store images.\n", encoding="utf-8")
+    shelf.add_document(src, category="guides", title="images")
+    _asset_dir(shelf.root / "docs" / "guides")
+
+    rules = {(f.rule, f.path) for f in shelf.doctor()}
+    assert ("split-out-of-sync", "docs/guides/images.md") not in rules
+
+
+def test_doctor_still_flags_a_real_split_out_of_sync(tmp_path: Path):
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    first = shelf.add_document(_big_markdown(tmp_path / "big.md"), category="big", title="Doc")
+    first.section_paths[-1].unlink()
+
+    rules = {(f.rule, f.path) for f in shelf.doctor()}
+    assert ("split-out-of-sync", "docs/big/doc.md") in rules
