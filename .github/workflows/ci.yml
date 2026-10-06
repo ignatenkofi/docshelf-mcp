@@ -86,6 +86,39 @@ jobs:
           docshelf-mcp --version
           docshelf-mcp --help
 
+      # No real PII in the tree (the pattern the sibling repos follow, pii-mcp's
+      # own CI first): `pii-mcp verify .` over the checkout, with the baseline
+      # accepting the known synthetic matches by fingerprint — the maintainer
+      # e-mail in pyproject.toml and the git user.email a test sets up. Any
+      # other finding fails the job. pii-mcp is a private repository, so the
+      # install needs a token that can read it: the `PII_MCP_TOKEN` secret
+      # (fine-grained PAT, Contents: read on ignatenkofi/pii-mcp). Without it
+      # — fork PRs, or the secret not configured yet — the check is SKIPPED
+      # with a visible warning, never faked green: a job that could not
+      # install the tool has not verified anything. Refresh the baseline
+      # locally with
+      #   pii-mcp verify . --format json   (take the fingerprints you accept)
+      # pii-mcp at main, not a tag: the tool has no release yet (0.1.0 only).
+      - name: Is the pii-mcp install token available?
+        id: pii-token
+        env:
+          PII_MCP_TOKEN: ${{ secrets.PII_MCP_TOKEN }}
+        run: echo "present=${PII_MCP_TOKEN:+yes}" >> "$GITHUB_OUTPUT"
+
+      - name: Self-verify (no real PII in the tree)
+        if: steps.pii-token.outputs.present == 'yes'
+        env:
+          PII_MCP_TOKEN: ${{ secrets.PII_MCP_TOKEN }}
+        run: |
+          git config --global url."https://x-access-token:${PII_MCP_TOKEN}@github.com/".insteadOf "https://github.com/"
+          pip install --quiet "pii-mcp @ git+https://github.com/ignatenkofi/pii-mcp"
+          pii-mcp --version
+          pii-mcp verify . --baseline tests/pii-baseline.json --format json
+
+      - name: Self-verify skipped (no PII_MCP_TOKEN)
+        if: steps.pii-token.outputs.present != 'yes'
+        run: echo "::warning title=Self-verify skipped::PII_MCP_TOKEN is not available in this run (fork PR or secret not configured) — the PII self-verify did not run."
+
       # The three checks above answer "does it import and print its version".
       # They cannot answer "can a client talk to it" — and that is the question
       # this job's name promises. A real client over the real stdio transport:

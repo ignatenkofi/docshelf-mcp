@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-10-06
+
+### Added
+- **CI verifies that the tree carries no real PII** (`pii-mcp verify .`,
+  the same self-check the sibling repos run). `tests/pii-baseline.json`
+  accepts the two known synthetic matches by fingerprint — the maintainer
+  e-mail in `pyproject.toml` and the git `user.email` a test configures;
+  any other finding fails the smoke job. pii-mcp is a private repository,
+  so the step needs the `PII_MCP_TOKEN` secret to install it; a run without
+  the secret (fork PRs, or before the secret exists) skips the step with a
+  visible warning instead of pretending it passed.
+
 ### Changed
 - **The conformance job validates the manifest docshelf writes, strictly**
   (shelf-spec ADR-0005). Since 0.4.0 the job scaffolded a shelf with
@@ -51,8 +63,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   branch now has a test of its own.
 
   Release note: this is a **breaking** change for installers — a plain
-  `pip install docshelf-mcp` no longer converts PDFs. The next release is a
-  minor bump (0.5.0), not a patch.
+  `pip install docshelf-mcp` no longer converts PDFs. That is why this
+  release is a minor bump (0.5.0), not a patch.
 
 ### Fixed
 - **The `marker-pdf` ceiling is `<2` again.** 0.4.0 introduced the ceiling
