@@ -20,6 +20,10 @@ on:
     branches: [main]
   pull_request:
 
+# GITHUB_TOKEN: read-only on purpose - no step here writes to GitHub.
+permissions:
+  contents: read
+
 jobs:
   conformance:
     runs-on: ubuntu-latest
