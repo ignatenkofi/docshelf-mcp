@@ -135,10 +135,12 @@ jobs:
           python -c "import importlib.metadata as m; print('mcp', m.version('mcp'))"
           pytest tests/test_stdio_protocol.py -v
 
-  # Known advisories of the whole dependency tree, extras included. Nothing
-  # else here audits `high-quality`: its marker-pdf pulls PyTorch, so no other
-  # job installs it — this one only resolves it (`uv pip compile`, no install)
-  # and audits the pins. Accepted advisories live in .github/pip-audit-ignore.txt
+  # Known advisories of the whole dependency tree, extras included. This job
+  # is the repo's only dependency audit: the security pipeline's SCA stage
+  # looks for lock files and finds none (uv.lock is not committed, see
+  # security.yml, #119). Nor does any other job install `high-quality`: its
+  # marker-pdf pulls PyTorch — this one only resolves it (`uv pip compile`, no
+  # install) and audits the pins. Accepted advisories live in .github/pip-audit-ignore.txt
   # with a review-by date (#112); the gate fails on a new advisory, on a stale
   # ignore (an id pip-audit stopped reporting) and on the date itself.
   dependency-audit:

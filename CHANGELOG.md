@@ -65,6 +65,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   its fix is to move it aside or declare it in `extra_dirs`, never to
   delete it. `colliding-category-dirs` skips `extra_dirs` like the other
   checks.
+- **The pip-audit gate no longer passes an audit of nothing** (#119). It
+  printed only an advisory count, and an empty report failed it only as 23
+  "stale ignore" errors while the accepted list is non-empty. It now counts
+  the packages the report audited, names them in its summary line and fails
+  at zero, whatever the ignore list holds. The `dependabot.yml` command to
+  reproduce the accepted advisories needed the uncommitted `uv.lock`; it now
+  resolves from `pyproject.toml`. `security.yml` says that the pipeline's
+  SCA stage finds no lock file here and skips by construction, and that
+  `dependency-audit` is where dependencies are audited.
 
 ## [0.5.0] — 2026-10-06
 
