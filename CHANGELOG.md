@@ -15,6 +15,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   date of 2026-12-31; core and the other extras are clean. The gate fails on
   a new advisory, on a stale ignore (the marker-pdf 2.x port clears the
   transformers ids) and once the review-by date passes.
+- **Python 3.14 is tested and declared** (#121): a `3.14` row in the
+  `ci.yml` matrix and the `Programming Language :: Python :: 3.14`
+  classifier. On 3.14 `Path.is_dir` answers a permission error with `False`
+  instead of raising, so a split directory without the search bit read as
+  docshelf's own there; `is_split_dir` now asks `lstat`, which refuses on
+  every Python, and a test denies access for real wherever chmod can. The
+  README names what 3.14 cannot install from wheels: `[high-quality]`
+  anywhere (Pillow 10), `[pdf]` / `[formats]` on Intel Macs and macOS 13
+  (onnxruntime).
 
 ### Changed
 - **`docshelf_doctor` is annotated `destructiveHint: true`.** `fix=true`

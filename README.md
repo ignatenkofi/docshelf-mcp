@@ -87,6 +87,15 @@ Optional high-quality PDF engine (pulls ~2 GB of PyTorch — only if you need it
 pip install "docshelf-mcp[high-quality]"
 ```
 
+> **Python 3.14** (checked 2026-10-07): `[high-quality]` does not install
+> from wheels — every `marker-pdf` 1.x requires `pillow<11`, and Pillow 10
+> has no 3.14 wheels, so pip would have to build it from source. Use Python
+> 3.10–3.13 for it. `[pdf]` and `[formats]` install from wheels on 3.14 on
+> Linux, Windows x64 and Apple-silicon macOS 14+, but not on Intel Macs or
+> macOS 13: `onnxruntime`, which `pymupdf4llm` pulls in, has no 3.14 wheels
+> there. To re-check from a checkout (exit 0 means wheels exist):
+> `uv pip compile pyproject.toml --extra high-quality --python-version 3.14 --only-binary :all:`
+
 ---
 
 ## 📋 Project Prompt
@@ -280,7 +289,7 @@ Then pass `quality="high"`:
 shelf.add_document("paper.pdf", category="research", title="...", quality="high")
 ```
 
-⚠️  `marker-pdf` pulls in PyTorch (~2 GB) and is significantly slower (10–60 s per document on CPU). The library import is **deferred** — if you don't use `quality="high"`, the dependency is never loaded.
+⚠️  `marker-pdf` pulls in PyTorch (~2 GB) and is significantly slower (10–60 s per document on CPU). The library import is **deferred** — if you don't use `quality="high"`, the dependency is never loaded. On Python 3.14 it does not install from wheels yet — see the 3.14 note under Install.
 
 ---
 

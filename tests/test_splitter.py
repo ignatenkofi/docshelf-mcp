@@ -1,5 +1,6 @@
 """Tests for clean_markdown / split_by_h2 / write_split_files."""
 
+import os
 from pathlib import Path
 
 import pytest
@@ -178,8 +179,9 @@ def test_is_split_dir_false_for_an_unreadable_directory(
     # A directory the process may not read proves nothing is docshelf's: it is
     # someone else's, not an OSError out of doctor(fix=False). Both ways the OS
     # refuses: no read bit (the listing fails) and no search bit (the listing
-    # works, but stat of an entry fails — Path.is_dir re-raises EACCES). chmod
-    # does neither as root or on Windows, so the refusal is simulated.
+    # works, but stat of an entry fails — lstat raises EACCES on every Python,
+    # Path.is_dir only up to 3.13). chmod does neither as root or on Windows,
+    # so the refusal is simulated here; the next test asks the OS itself.
     target = tmp_path / "doc"
     write_split_files(split_by_h2(SAMPLE), target)
     assert is_split_dir(target)
@@ -194,16 +196,47 @@ def test_is_split_dir_false_for_an_unreadable_directory(
 
         monkeypatch.setattr(Path, "iterdir", iterdir)
     else:
-        real_is_dir = Path.is_dir
+        real_lstat = Path.lstat
 
-        def is_dir(self: Path, *args, **kwargs):
+        def lstat(self: Path):
             if self.parent == target:
                 raise denial
-            return real_is_dir(self, *args, **kwargs)
+            return real_lstat(self)
 
-        monkeypatch.setattr(Path, "is_dir", is_dir)
+        monkeypatch.setattr(Path, "lstat", lstat)
 
     assert is_split_dir(target) is False
+
+
+@pytest.mark.skipif(
+    os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0),
+    reason="chmod refuses nothing to root, and Windows has no search bit",
+)
+@pytest.mark.parametrize(
+    ("denied", "mode"), [("listing", 0o300), ("stat", 0o600)], ids=["listing", "stat"]
+)
+def test_is_split_dir_false_when_the_os_really_refuses(tmp_path: Path, denied: str, mode: int):
+    # The simulation above pins the mechanism; this asks the OS, on whichever
+    # Python runs it. Without a search bit Path.is_dir raises EACCES up to 3.13
+    # but answers False from 3.14 — where a faked raise stayed green while a
+    # real denied split read as docshelf's own (#121).
+    target = tmp_path / "doc"
+    write_split_files(split_by_h2(SAMPLE), target)
+    section = next(target.iterdir())
+    target.chmod(mode)
+    try:
+        try:
+            if denied == "listing":
+                os.listdir(target)
+            else:
+                os.lstat(section)
+        except PermissionError:
+            pass
+        else:
+            pytest.skip(f"chmod {mode:o} did not refuse the {denied} on this filesystem")
+        assert is_split_dir(target) is False
+    finally:
+        target.chmod(0o755)
 
 
 def test_write_split_files_refuses_a_foreign_directory(tmp_path: Path):

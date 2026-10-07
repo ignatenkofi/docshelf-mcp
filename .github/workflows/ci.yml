@@ -24,7 +24,7 @@ jobs:
         # Full version spread on Linux; one smoke run each on Windows/macOS
         # (the tool is aimed at desktop clients and does a lot of path work).
         os: [ubuntu-latest]
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
         include:
           - os: windows-latest
             python-version: "3.12"

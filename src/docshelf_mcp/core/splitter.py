@@ -260,8 +260,11 @@ def is_split_dir(path: Path) -> bool:
         if path.is_symlink() or not path.is_dir():
             return False
         # No read bit: the listing fails. No search bit: the listing works, but
-        # stat of an entry fails, and Path.is_dir can re-raise EACCES.
+        # stat of an entry fails — and only lstat says so on every Python:
+        # Path.is_dir re-raises EACCES up to 3.13, while from 3.14 it answers
+        # False, so the denial would pass for a section file (#121).
         for child in path.iterdir():
+            child.lstat()
             if child.is_dir():
                 return False
             if child.name not in _SPLIT_DIR_EXTRAS and not _SECTION_FILE_RE.match(child.name):
