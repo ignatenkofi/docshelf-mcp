@@ -3,6 +3,7 @@
 
 import json
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -1090,6 +1091,21 @@ def test_doctor_leaves_committed_split_dirs_alone(tmp_path: Path):
     )
 
 
+def test_doctor_names_uncommitted_sections_next_to_a_stray_file(tmp_path: Path):
+    # The index reads the sections of a split holding a figure, so gitstate has
+    # to as well (#118 review): otherwise the figure turns the #97 finding back
+    # into a stale-index whose fix=True rebuild publishes links to sections no
+    # other checkout has.
+    shelf, split_dir = _split_shelf_with_uncommitted_sections(tmp_path)
+    (split_dir / "figure.png").write_bytes(b"\x89PNG")
+    rel = split_dir.relative_to(shelf.root).as_posix()
+
+    rules = {(f.rule, f.path) for f in shelf.doctor()}
+
+    assert ("uncommitted-split-dir", rel) in rules
+    assert ("stale-index", "INDEX.md") not in rules
+
+
 def test_doctor_detects_empty_category_and_duplicate_title(tmp_path: Path):
     shelf = Shelf(tmp_path / "s").init(name="S", default_categories=["hollow"])
     shelf.add_document(FIXTURE, category="docs", title="Dup", split=False)
@@ -1665,10 +1681,15 @@ def test_doctor_does_not_call_a_foreign_same_stem_dir_out_of_sync(tmp_path: Path
     assert ("split-out-of-sync", "docs/guides/images.md") not in rules
 
 
-def test_doctor_still_flags_a_real_split_out_of_sync(tmp_path: Path):
+@pytest.mark.parametrize("stray", [None, "figure.png"])
+def test_doctor_still_flags_a_real_split_out_of_sync(tmp_path: Path, stray: str | None):
+    # A figure next to the sections leaves them the ones the index lists, so
+    # they are still compared with a fresh split of the parent (#118 review).
     shelf = Shelf(tmp_path / "s").init(name="S")
     first = shelf.add_document(_big_markdown(tmp_path / "big.md"), category="big", title="Doc")
     first.section_paths[-1].unlink()
+    if stray:
+        (first.section_paths[0].parent / stray).write_bytes(b"\x89PNG")
 
     rules = {(f.rule, f.path) for f in shelf.doctor()}
     assert ("split-out-of-sync", "docs/big/doc.md") in rules
@@ -1799,7 +1820,14 @@ def test_doctor_does_not_take_a_foreign_dir_for_uncommitted_sections(tmp_path: P
     assert sorted(p.name for p in foreign.iterdir()) == ["notes.md"]
 
 
-@pytest.mark.parametrize("shape", ["foreign-dir", "split-with-a-stray-file", "plain-file"])
+_CONFLICT_CAUSE = {
+    "foreign-dir": "holds diagram.png, which docshelf did not write",
+    "split-with-a-stray-file": "holds notes.md, which docshelf did not write",
+    "plain-file": "is not a directory",
+}
+
+
+@pytest.mark.parametrize("shape", sorted(_CONFLICT_CAUSE))
 def test_doctor_announces_the_split_dir_conflict_a_re_add_refuses_on(tmp_path: Path, shape: str):
     # Every state add_document's pre-flight refuses on is reported first. A
     # split with one stray file was the silent case: it stopped being
@@ -1808,8 +1836,11 @@ def test_doctor_announces_the_split_dir_conflict_a_re_add_refuses_on(tmp_path: P
     shelf = Shelf(tmp_path / "s").init(name="S")
     big = _big_markdown(tmp_path / "big.md", "Doc")
     cat = shelf.root / "docs" / "big"
+    written: list[str] = []
     if shape == "split-with-a-stray-file":
-        assert shelf.add_document(big, category="big", title="Doc").was_split
+        added = shelf.add_document(big, category="big", title="Doc")
+        written = [p.relative_to(shelf.root).as_posix() for p in added.section_paths]
+        assert len(written) == 6  # preamble + five H2 sections
         stray = cat / "doc" / "notes.md"
         stray.write_text("mine\n", encoding="utf-8")
     else:
@@ -1824,15 +1855,19 @@ def test_doctor_announces_the_split_dir_conflict_a_re_add_refuses_on(tmp_path: P
 
     assert [(f.path, f.severity, f.fixed) for f in found] == [("docs/big/doc", "warning", False)]
     assert stray.is_file()  # fix=True left it alone
-    # The advice is to move it or declare it, never to delete someone's files.
+    assert _CONFLICT_CAUSE[shape] in found[0].detail
+    # The advice is to move it aside, never to delete someone's files — nor
+    # to declare it: extra_dirs does not lift the refusal (#118 review).
     assert "move it aside" in found[0].suggested_fix
-    assert "extra_dirs" in found[0].suggested_fix
+    assert "extra_dirs" not in found[0].suggested_fix
     assert not re.search(r"\b(delete|remove|rm)\b", found[0].suggested_fix)
-    # Not read as the document's sections either, stray .md included.
-    assert [e.section_paths for e in shelf.scan()] == [[]]
-    # And the refusal the finding announces is real.
+    # Only NNN-*.md files are read as sections: the stray notes.md never, and
+    # a split's own sections still — a stray file hides none of them.
+    assert [e.section_paths for e in shelf.scan()] == [written]
+    # And the refusal the finding announces is real, naming the same cause.
     err = _refusal(lambda: shelf.add_document(big, category="big", title="Doc", overwrite=True))
     assert type(err).__name__ == "SplitDirConflictError"
+    assert _CONFLICT_CAUSE[shape] in str(err)
 
 
 def test_doctor_does_not_flag_a_split_docshelf_wrote(tmp_path: Path):
@@ -1857,15 +1892,173 @@ def _declare_extra_dirs(shelf: Shelf, *dirs: str) -> None:
     )
 
 
-def test_doctor_skips_a_declared_sidecar_at_a_split_path(tmp_path: Path):
-    # Declaring the directory in extra_dirs is one of the two fixes the finding
-    # offers, so declaring it has to silence it.
+def test_doctor_still_reports_a_declared_dir_at_a_split_path(tmp_path: Path):
+    # extra_dirs exempts a sidecar from the category and orphan rules, but the
+    # re-add pre-flight never read it: a declared folder at a document's split
+    # path still makes the re-add refuse. doctor skipped it, so declaring it
+    # silenced the finding and kept the refusal (#118 review).
     shelf = Shelf(tmp_path / "s").init(name="S", default_categories=["guides"], manifest=True)
     _declare_extra_dirs(shelf, "docs/guides/images/")
     shelf.add_document(FIXTURE, category="guides", title="images", split=False)
     _asset_dir(shelf.root / "docs" / "guides")
 
-    assert [f for f in shelf.doctor() if f.path == "docs/guides/images"] == []
+    found = [(f.rule, f.path) for f in shelf.doctor() if f.path == "docs/guides/images"]
+    err = _refusal(
+        lambda: shelf.add_document(
+            FIXTURE, category="guides", title="images", split=False, overwrite=True
+        )
+    )
+
+    assert found == [("split-dir-conflict", "docs/guides/images")]
+    assert type(err).__name__ == "SplitDirConflictError"
+
+
+def test_a_figure_dropped_into_a_split_hides_none_of_its_sections(tmp_path: Path):
+    # Reading a split only when it held nothing else dropped every section of
+    # one someone put figure.png into: INDEX.md lost the links at the next,
+    # unrelated add. Only NNN-*.md files are sections, whatever else is there;
+    # the folder is still not docshelf's to rewrite, which doctor names.
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    added = shelf.add_document(_big_markdown(tmp_path / "big.md"), category="big", title="Doc")
+    split_dir = added.document_path.parent / added.document_path.stem
+    links = [p.relative_to(shelf.root).as_posix() for p in added.section_paths]
+    index = shelf.root / "INDEX.md"
+    before = index.read_text(encoding="utf-8")
+    (split_dir / "figure.png").write_bytes(b"\x89PNG")
+
+    shelf.add_document(FIXTURE, category="notes", title="Other", split=False)
+    after = index.read_text(encoding="utf-8")
+    findings = {(f.rule, f.path) for f in shelf.doctor()}
+
+    assert len(links) == 6  # preamble + five H2 sections
+    assert [link for link in links if link in before] == links
+    assert [link for link in links if link in after] == links
+    assert ("split-dir-conflict", "docs/big/doc") in findings
+    assert ("stale-index", "INDEX.md") not in findings
+    assert (split_dir / "figure.png").is_file()
+
+
+def test_a_split_reached_through_a_symlink_is_not_read(tmp_path: Path):
+    # A split moved elsewhere and linked back was read through the link. A
+    # symlinked split is not a split: no sections, nothing written through it,
+    # the parent searchable again, and the finding says "symlink".
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    added = shelf.add_document(_big_markdown(tmp_path / "big.md"), category="big", title="Doc")
+    split_dir = added.document_path.parent / added.document_path.stem
+    moved = tmp_path / "elsewhere"
+    shutil.move(str(split_dir), str(moved))
+    try:
+        split_dir.symlink_to(moved, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks are not available on this filesystem/account")
+    (moved / "SUBINDEX.md").unlink()
+
+    entry = next(e for e in shelf.scan() if e.relative_path == "docs/big/doc.md")
+    found = [f for f in shelf.doctor() if f.rule == "split-dir-conflict"]
+    shelf.rebuild_index()
+    hits = [h["relative_path"] for h in shelf.search("lorem")]
+
+    assert entry.section_paths == []
+    assert [f.path for f in found] == ["docs/big/doc"]
+    assert "is a symlink" in found[0].detail
+    assert not (moved / "SUBINDEX.md").exists()
+    assert hits == ["docs/big/doc.md"]
+
+
+def test_a_symlink_inside_a_split_makes_it_someone_elses(tmp_path: Path):
+    # docshelf never writes a symlink: a split holding one is not docshelf's
+    # to rewrite or read, and the re-add refuses with the cause named.
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    big = _big_markdown(tmp_path / "big.md")
+    added = shelf.add_document(big, category="big", title="Doc")
+    split_dir = added.document_path.parent / added.document_path.stem
+    outside = tmp_path / "outside.md"
+    outside.write_text("## Mine\n", encoding="utf-8")
+    try:
+        (split_dir / "999-mine.md").symlink_to(outside)
+    except OSError:
+        pytest.skip("symlinks are not available on this filesystem/account")
+
+    found = [f for f in shelf.doctor(fix=True) if f.rule == "split-dir-conflict"]
+    err = _refusal(lambda: shelf.add_document(big, category="big", title="Doc", overwrite=True))
+
+    assert [e.section_paths for e in shelf.scan()] == [[]]
+    assert [f.path for f in found] == ["docs/big/doc"]
+    assert "holds a symlink (999-mine.md)" in found[0].detail
+    assert type(err).__name__ == "SplitDirConflictError"
+    assert "symlink" in str(err)
+    assert (split_dir / "999-mine.md").is_symlink() and outside.is_file()
+
+
+def test_a_dangling_symlink_at_the_split_path_is_refused_up_front(tmp_path: Path):
+    # exists() follows the link and found nothing there: the pre-flight let the
+    # add through, the document was written, and only the split then failed on
+    # the link. lstat sees the link, so nothing is written.
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    cat = shelf.root / "docs" / "big"
+    cat.mkdir(parents=True, exist_ok=True)
+    try:
+        (cat / "doc").symlink_to(tmp_path / "gone", target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks are not available on this filesystem/account")
+
+    err = _refusal(
+        lambda: shelf.add_document(_big_markdown(tmp_path / "big.md"), category="big", title="Doc")
+    )
+
+    assert type(err).__name__ == "SplitDirConflictError"
+    assert "is a symlink" in str(err)
+    assert not (cat / "doc.md").exists()
+
+
+def _case_insensitive(directory: Path) -> bool:
+    probe = directory / "CaseProbe"
+    probe.mkdir()
+    try:
+        return (directory / "caseprobe").exists()
+    finally:
+        probe.rmdir()
+
+
+def test_doctor_names_a_split_path_spelt_differently_on_disk_once(tmp_path: Path):
+    # On a case-insensitive filesystem (APFS, NTFS by default) Images/ is
+    # images.md's split path, and the re-add refuses on it. doctor reported it
+    # twice — an orphan by its own name, a conflict by the document's — and no
+    # extra_dirs entry cleared both (#118 review).
+    if not _case_insensitive(tmp_path):
+        pytest.skip("case-sensitive filesystem: Images/ is not images.md's split path")
+    shelf = Shelf(tmp_path / "s").init(name="S", default_categories=["guides"])
+    shelf.add_document(FIXTURE, category="guides", title="images", split=False)
+    _asset_dir(shelf.root / "docs" / "guides", "Images")
+
+    found = [(f.rule, f.path) for f in shelf.doctor() if "images" in f.path.lower()]
+    err = _refusal(
+        lambda: shelf.add_document(
+            FIXTURE, category="guides", title="images", split=False, overwrite=True
+        )
+    )
+
+    assert found == [("split-dir-conflict", "docs/guides/Images")]
+    assert type(err).__name__ == "SplitDirConflictError"
+
+
+def test_doctor_calls_a_case_variant_an_orphan_where_case_matters(tmp_path: Path):
+    # The counterpart: where the filesystem tells Images/ from images/, the
+    # folder is nobody's split path — an orphan, and the re-add goes through.
+    if _case_insensitive(tmp_path):
+        pytest.skip("case-insensitive filesystem: Images/ is images.md's split path")
+    shelf = Shelf(tmp_path / "s").init(name="S", default_categories=["guides"])
+    shelf.add_document(FIXTURE, category="guides", title="images", split=False)
+    _asset_dir(shelf.root / "docs" / "guides", "Images")
+
+    found = [(f.rule, f.path) for f in shelf.doctor() if "images" in f.path.lower()]
+
+    readd = shelf.add_document(
+        FIXTURE, category="guides", title="images", split=False, overwrite=True
+    )
+
+    assert found == [("orphaned-split-dir", "docs/guides/Images")]
+    assert readd.overwritten
 
 
 def test_colliding_category_dirs_skips_a_declared_sidecar(tmp_path: Path):

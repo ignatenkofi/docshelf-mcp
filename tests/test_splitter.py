@@ -8,6 +8,7 @@ import pytest
 from docshelf_mcp.core.splitter import (
     SplitDirConflictError,
     clean_markdown,
+    inspect_split_dir,
     is_split_dir,
     lint_sections,
     should_split,
@@ -237,6 +238,94 @@ def test_is_split_dir_false_when_the_os_really_refuses(tmp_path: Path, denied: s
         assert is_split_dir(target) is False
     finally:
         target.chmod(0o755)
+
+
+def test_inspect_split_dir_reads_sections_past_files_docshelf_did_not_write(tmp_path: Path):
+    # The index reads the NNN-*.md sections whatever else the directory holds:
+    # a figure dropped into a split hid every section of it (#118 review).
+    # The directory is still not docshelf's to rewrite, and the problem names
+    # what is in the way.
+    target = tmp_path / "doc"
+    sections = write_split_files(split_by_h2(SAMPLE), target)
+    (target / "figure.png").write_bytes(b"\x89PNG")
+
+    found, problem = inspect_split_dir(target)
+
+    assert found == sorted(sections)
+    assert problem == "holds figure.png, which docshelf did not write"
+    assert not is_split_dir(target)
+    for name in ("a.txt", "b.txt", "c.txt"):
+        (target / name).write_text("x\n", encoding="utf-8")
+    assert inspect_split_dir(target)[1] == (
+        "holds a.txt, b.txt, c.txt and 1 more, which docshelf did not write"
+    )
+
+
+def test_inspect_split_dir_without_a_problem(tmp_path: Path):
+    # What docshelf wrote, and a path that does not exist: nothing in the way.
+    target = tmp_path / "doc"
+    sections = write_split_files(split_by_h2(SAMPLE), target)
+    (target / "SUBINDEX.md").write_text("# nav\n", encoding="utf-8")
+    (target / ".DS_Store").write_bytes(b"\0")
+
+    assert inspect_split_dir(target) == (sorted(sections), None)
+    assert inspect_split_dir(tmp_path / "absent") == ([], None)
+    a_file = tmp_path / "file"
+    a_file.write_text("x\n", encoding="utf-8")
+    assert inspect_split_dir(a_file) == ([], "is not a directory")
+
+
+@pytest.mark.parametrize("linked", ["the-directory", "a-section", "a-foreign-file"])
+def test_inspect_split_dir_reads_nothing_through_a_symlink(tmp_path: Path, linked: str):
+    # docshelf never writes a symlink, and rmtree refuses one: a symlinked
+    # split, or a split holding one, is not a split — no sections, and the
+    # problem says "symlink" (#118 review).
+    real = tmp_path / "real"
+    write_split_files(split_by_h2(SAMPLE), real)
+    outside = tmp_path / "outside.md"
+    outside.write_text("## Elsewhere\n", encoding="utf-8")
+    try:
+        if linked == "the-directory":
+            target = tmp_path / "doc"
+            target.symlink_to(real, target_is_directory=True)
+        else:
+            target = real
+            name = "999-linked.md" if linked == "a-section" else "notes.md"
+            (target / name).symlink_to(outside)
+    except OSError:
+        pytest.skip("symlinks are not available on this filesystem/account")
+
+    found, problem = inspect_split_dir(target)
+
+    assert found == []
+    assert problem is not None and "symlink" in problem
+    assert not is_split_dir(target)
+
+
+@pytest.mark.skipif(
+    os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0),
+    reason="chmod refuses nothing to root, and Windows has no search bit",
+)
+def test_a_symlink_to_a_denied_target_is_not_a_split_on_any_python(tmp_path: Path):
+    # A section entry linking into a directory without a search bit: is_dir()
+    # through the link raises EACCES up to 3.13 and answers False from 3.14,
+    # so the verdict differed by Python. lstat of the entry does not follow
+    # the link: the same "not a split" on every version.
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    (locked / "real.md").write_text("## x\n", encoding="utf-8")
+    target = tmp_path / "doc"
+    write_split_files(split_by_h2(SAMPLE), target)
+    try:
+        (target / "009-link.md").symlink_to(locked / "real.md")
+    except OSError:
+        pytest.skip("symlinks are not available on this filesystem/account")
+    locked.chmod(0o600)
+    try:
+        assert inspect_split_dir(target) == ([], "holds a symlink (009-link.md)")
+        assert is_split_dir(target) is False
+    finally:
+        locked.chmod(0o755)
 
 
 def test_write_split_files_refuses_a_foreign_directory(tmp_path: Path):

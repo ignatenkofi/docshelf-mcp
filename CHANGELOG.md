@@ -36,6 +36,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`docshelf_doctor` is annotated `destructiveHint: true`.** `fix=true`
   deletes directories (orphaned splits), so a client deciding whether to
   ask before calling it was told the opposite of what it does.
+- **A split directory that is a symlink, or holds one, is no longer read
+  as a split** (#118). docshelf never writes a symlink and never deletes
+  through one, yet the index read sections through them — and a link into
+  a directory without the search bit passed for a section on Python 3.14
+  but not on 3.10. Such a directory now lends its document no sections: on
+  a shelf that has one, `INDEX.md` drops those links at the next rebuild
+  (`stale-index` until then), `search` returns the parent document in their
+  place, and `split-dir-conflict` says "symlink".
 
 ### Fixed
 - **docshelf no longer deletes directories it did not write.** A document's
@@ -74,12 +82,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `notes.md` in it was published in `INDEX.md` as a section, `rebuild_index`
   wrote a `SUBINDEX.md` into their directory, doctor advised deleting it and
   re-adding the document, and `search` dropped the document's own text. All
-  of them now use `is_split_dir`, as `add_document` and `remove_document`
-  already do. The new `split-dir-conflict` warning names such a path — a
-  foreign folder, a split someone dropped their own file into, a plain
-  file — before re-adding the document refuses with `SplitDirConflictError`;
-  its fix is to move it aside or declare it in `extra_dirs`, never to
-  delete it. `colliding-category-dirs` skips `extra_dirs` like the other
+  of them now read only the regular `NNN-*.md` files there as sections
+  (`splitter.inspect_split_dir`): a foreign folder lends the document none,
+  and a figure dropped into a split hides none of its sections. The new
+  `split-dir-conflict` warning names such a path and what is in the way —
+  a foreign folder, a stray file in a split, a plain file — before
+  re-adding the document refuses with `SplitDirConflictError`, the same
+  test as that refusal's: `extra_dirs` lifts neither, so the fix is to move
+  it aside, never to delete it. A case variant on a case-insensitive
+  filesystem (`Images/` next to `images.md`) is reported once, under its
+  on-disk name. `colliding-category-dirs` skips `extra_dirs` like the other
   checks.
 - **The pip-audit gate no longer passes an audit of nothing** (#119). It
   printed only an advisory count, and an empty report failed it only as 23

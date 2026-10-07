@@ -278,11 +278,12 @@ def scan_shelf(shelf_root: Path) -> list[DocumentEntry]:
     * ``docs/<category>/.meta.json`` — optional override file with the
       shape ``{"<doc>.md": {"title": "...", "description": "..."}}``.
 
-    A same-stem directory counts as the document's sections only when it is
-    shaped like a split (:func:`~docshelf_mcp.core.splitter.is_split_dir`).
+    A same-stem directory lends the document only its regular ``NNN-*.md``
+    files as sections (:func:`~docshelf_mcp.core.splitter.inspect_split_dir`),
+    and none from a symlink or a directory that holds one.
     """
     # Imported here: splitter imports this module for SUBINDEX_FILENAME.
-    from docshelf_mcp.core.splitter import is_split_dir
+    from docshelf_mcp.core.splitter import inspect_split_dir
 
     docs_root = shelf_root / "docs"
     entries: list[DocumentEntry] = []
@@ -298,19 +299,14 @@ def scan_shelf(shelf_root: Path) -> list[DocumentEntry]:
             description = override.get("description", "")
 
             # Look for a sibling directory of the same stem — split sections.
-            # SUBINDEX.md is navigation, not content, so it's not a section.
-            # Only a split-shaped directory is (#118): an images/ folder or the
-            # user's notes next to a document of the same stem are not its
-            # sections, so their *.md stay out of INDEX and rebuild_index
-            # writes no SUBINDEX.md into them.
+            # Only NNN-*.md files are sections (#118): the user's notes.md in an
+            # images/ folder next to images.md stay out of INDEX, and with no
+            # sections rebuild_index writes no SUBINDEX.md there; a figure
+            # dropped into a real split hides none of its sections.
             split_dir = category_dir / md_file.stem
-            section_paths: list[str] = []
-            if is_split_dir(split_dir):
-                section_paths = sorted(
-                    str(p.relative_to(shelf_root).as_posix())
-                    for p in split_dir.glob("*.md")
-                    if p.name != SUBINDEX_FILENAME
-                )
+            section_paths = sorted(
+                p.relative_to(shelf_root).as_posix() for p in inspect_split_dir(split_dir)[0]
+            )
 
             entries.append(
                 DocumentEntry(
