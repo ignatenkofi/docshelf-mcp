@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **CI audits every extra with pip-audit** (`dependency-audit` job, #112).
+  The 23 known PYSEC advisories of the `high-quality` extra (transformers
+  4.57.x held by marker-pdf 1.x, pillow 10.4.x held `<11` by marker-pdf and
+  surya-ocr) are accepted in `.github/pip-audit-ignore.txt` with a review-by
+  date of 2026-12-31; core and the other extras are clean. The gate fails on
+  a new advisory, on a stale ignore (the marker-pdf 2.x port clears the
+  transformers ids) and once the review-by date passes.
+
+### Changed
+- **`docshelf_doctor` is annotated `destructiveHint: true`.** `fix=true`
+  deletes directories (orphaned splits), so a client deciding whether to
+  ask before calling it was told the opposite of what it does.
+
 ### Fixed
 - **docshelf no longer deletes directories it did not write.** A document's
   sections live in `<stem>/` next to it, and five paths removed that
@@ -39,11 +53,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   or empty categories, and `fix=True` deleted the former; they are now
   skipped, as in the spec's own validator.
 
-### Changed
-- **`docshelf_doctor` is annotated `destructiveHint: true`.** `fix=true`
-  deletes directories (orphaned splits), so a client deciding whether to
-  ask before calling it was told the opposite of what it does.
-
 ## [0.5.0] — 2026-10-06
 
 ### Added
@@ -52,7 +61,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   accepts the two known synthetic matches by fingerprint — the maintainer
   e-mail in `pyproject.toml` and the git `user.email` a test configures;
   any other finding fails the smoke job. pii-mcp is a private repository,
-  so the step needs the `PII_MCP_TOKEN` secret to install it; a run without
+  so the step needs the `PII_MCP_READ_TOKEN` secret to install it; a run without
   the secret (fork PRs, or before the secret exists) skips the step with a
   visible warning instead of pretending it passed.
 

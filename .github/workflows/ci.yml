@@ -91,7 +91,7 @@ jobs:
       # accepting the known synthetic matches by fingerprint — the maintainer
       # e-mail in pyproject.toml and the git user.email a test sets up. Any
       # other finding fails the job. pii-mcp is a private repository, so the
-      # install needs a token that can read it: the `PII_MCP_TOKEN` secret
+      # install needs a token that can read it: the `PII_MCP_READ_TOKEN` secret
       # (fine-grained PAT, Contents: read on ignatenkofi/pii-mcp). Without it
       # — fork PRs, or the secret not configured yet — the check is SKIPPED
       # with a visible warning, never faked green: a job that could not
@@ -102,22 +102,22 @@ jobs:
       - name: Is the pii-mcp install token available?
         id: pii-token
         env:
-          PII_MCP_TOKEN: ${{ secrets.PII_MCP_TOKEN }}
-        run: echo "present=${PII_MCP_TOKEN:+yes}" >> "$GITHUB_OUTPUT"
+          PII_MCP_READ_TOKEN: ${{ secrets.PII_MCP_READ_TOKEN }}
+        run: echo "present=${PII_MCP_READ_TOKEN:+yes}" >> "$GITHUB_OUTPUT"
 
       - name: Self-verify (no real PII in the tree)
         if: steps.pii-token.outputs.present == 'yes'
         env:
-          PII_MCP_TOKEN: ${{ secrets.PII_MCP_TOKEN }}
+          PII_MCP_READ_TOKEN: ${{ secrets.PII_MCP_READ_TOKEN }}
         run: |
-          git config --global url."https://x-access-token:${PII_MCP_TOKEN}@github.com/".insteadOf "https://github.com/"
+          git config --global url."https://x-access-token:${PII_MCP_READ_TOKEN}@github.com/".insteadOf "https://github.com/"
           pip install --quiet "pii-mcp @ git+https://github.com/ignatenkofi/pii-mcp"
           pii-mcp --version
           pii-mcp verify . --baseline tests/pii-baseline.json --format json
 
-      - name: Self-verify skipped (no PII_MCP_TOKEN)
+      - name: Self-verify skipped (no PII_MCP_READ_TOKEN)
         if: steps.pii-token.outputs.present != 'yes'
-        run: echo "::warning title=Self-verify skipped::PII_MCP_TOKEN is not available in this run (fork PR or secret not configured) — the PII self-verify did not run."
+        run: echo "::warning title=Self-verify skipped::PII_MCP_READ_TOKEN is not available in this run (fork PR or secret not configured) — the PII self-verify did not run."
 
       # The three checks above answer "does it import and print its version".
       # They cannot answer "can a client talk to it" — and that is the question
@@ -134,3 +134,33 @@ jobs:
           # SDK, который реально стоял, а не с тем, что в пине глазами.
           python -c "import importlib.metadata as m; print('mcp', m.version('mcp'))"
           pytest tests/test_stdio_protocol.py -v
+
+  # Known advisories of the whole dependency tree, extras included. Nothing
+  # else here audits `high-quality`: its marker-pdf pulls PyTorch, so no other
+  # job installs it — this one only resolves it (`uv pip compile`, no install)
+  # and audits the pins. Accepted advisories live in .github/pip-audit-ignore.txt
+  # with a review-by date (#112); the gate fails on a new advisory, on a stale
+  # ignore (an id pip-audit stopped reporting) and on the date itself.
+  dependency-audit:
+    name: Dependency audit (pip-audit, all extras)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install uv and pip-audit
+        run: python -m pip install --upgrade uv pip-audit
+
+      - name: Resolve every extra
+        run: uv pip compile pyproject.toml --all-extras --python-version 3.12 -q -o req-all.txt
+
+      - name: Audit and gate
+        run: |
+          # pip-audit exits 1 whenever it finds anything, accepted or not; the
+          # gate decides. No report at all (network, resolver) fails the gate.
+          pip-audit -r req-all.txt --no-deps --disable-pip -f json -o pip-audit.json || true
+          python .github/scripts/pip_audit_gate.py pip-audit.json .github/pip-audit-ignore.txt
