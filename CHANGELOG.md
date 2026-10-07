@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **CI audits every extra with pip-audit** (`dependency-audit` job, #112).
+  The 23 known PYSEC advisories of the `high-quality` extra (transformers
+  4.57.x held by marker-pdf 1.x, pillow 10.4.x held `<11` by marker-pdf and
+  surya-ocr) are accepted in `.github/pip-audit-ignore.txt` with a review-by
+  date of 2026-12-31; core and the other extras are clean. The gate fails on
+  a new advisory, on a stale ignore (the marker-pdf 2.x port clears the
+  transformers ids) and once the review-by date passes.
+
 ## [0.5.0] — 2026-10-06
 
 ### Added
