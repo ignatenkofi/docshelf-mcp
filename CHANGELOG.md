@@ -75,6 +75,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   SCA stage finds no lock file here and skips by construction, and that
   `dependency-audit` is where dependencies are audited.
 
+### Documentation
+- **`docs/USAGE.md` covers every tool and the flags it was missing**
+  (#120): a `docshelf_rename_document` section (what moves, what the
+  response says, how it differs from re-adding), `overwrite` on
+  `docshelf_add_document`, and `provider` / `url_template` on
+  `docshelf_init_shelf` with the link each provider renders — all written
+  from runs against the server, not from the schema. One such run corrected
+  "idempotent": a re-run of `docshelf_init_shelf` without `provider` and
+  `branch` resets them to `github` and `main`, and USAGE now says so. A test
+  checks that every tool the server registers has a section and every URL
+  provider is named, so the roster is never a number copied into the docs.
+  `smithery.yaml` says `docs/`, not `DOCS/`.
+
 ## [0.5.0] — 2026-10-06
 
 ### Added
