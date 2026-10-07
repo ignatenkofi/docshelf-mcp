@@ -1,0 +1,46 @@
+# Accepted pip-audit advisories — read by .github/scripts/pip_audit_gate.py.
+#
+# review-by: 2026-12-31
+#
+# Owner's decision 2026-10-07 (#112): accept, with a review date. Every id
+# below is in the `high-quality` extra only — marker-pdf 1.x and surya-ocr
+# hold transformers `<5` and pillow `<11`. Core and every other extra
+# (pdf, docx, html, epub, formats, dev) resolve clean, so a default install
+# is not affected; the vulnerable code runs only for consumers of
+# `high-quality`, and only on the PDF path through marker.
+#
+# Review on 2026-12-31 or at the marker-pdf 2.x port, whichever comes first.
+# The gate enforces both: after the review-by date it fails outright, and an
+# id that pip-audit no longer reports fails as a stale ignore — the port
+# lifts transformers to 5.x, so its six ids go stale and force the review.
+# pillow does NOT clear with the port: marker-pdf 2.0.0 and surya-ocr 0.22.x
+# still hold `pillow<11`, fixes start at 12.1.1 — it waits for upstream.
+#
+# One id per line; text after the id is a note.
+
+# transformers 4.57.6 — fixes in 5.x (marker-pdf 2.x port)
+PYSEC-2025-217    no fix version in the database
+PYSEC-2026-2288   fix 5.0.0
+PYSEC-2026-2289   fix 5.3.0
+PYSEC-2026-2290   fix 5.5.0
+PYSEC-2026-3929   fix 5.10.0
+PYSEC-2026-4174   no fix version in the database
+
+# pillow 10.4.0 — fixes from 12.1.1 (upstream ceiling <11 in marker-pdf/surya-ocr)
+PYSEC-2026-165    fix 12.2.0
+PYSEC-2026-2249   fix 12.1.1
+PYSEC-2026-2250   fix 12.2.0
+PYSEC-2026-2252   fix 12.2.0
+PYSEC-2026-2253   fix 12.3.0
+PYSEC-2026-2254   fix 12.3.0
+PYSEC-2026-2255   fix 12.3.0
+PYSEC-2026-2256   fix 12.3.0
+PYSEC-2026-2257   fix 12.3.0
+PYSEC-2026-2874   fix 12.2.0
+PYSEC-2026-3451   fix 12.3.0
+PYSEC-2026-3453   fix 12.3.0
+PYSEC-2026-3454   fix 12.3.0
+PYSEC-2026-3493   fix 12.3.0
+PYSEC-2026-3494   fix 12.3.0
+PYSEC-2026-3495   fix 12.3.0
+PYSEC-2026-3496   fix 12.3.0
