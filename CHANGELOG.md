@@ -52,6 +52,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   shelf-spec manifest declares as sidecars were reported as orphaned splits
   or empty categories, and `fix=True` deleted the former; they are now
   skipped, as in the spec's own validator.
+- **A foreign directory named like a document is no longer read as its
+  split** (#118). The indexer, `uncommitted-split-dir` and `search` took any
+  `<stem>/` next to `<stem>.md` for the document's sections: the user's
+  `notes.md` in it was published in `INDEX.md` as a section, `rebuild_index`
+  wrote a `SUBINDEX.md` into their directory, doctor advised deleting it and
+  re-adding the document, and `search` dropped the document's own text. All
+  of them now use `is_split_dir`, as `add_document` and `remove_document`
+  already do. The new `split-dir-conflict` warning names such a path — a
+  foreign folder, a split someone dropped their own file into, a plain
+  file — before re-adding the document refuses with `SplitDirConflictError`;
+  its fix is to move it aside or declare it in `extra_dirs`, never to
+  delete it. `colliding-category-dirs` skips `extra_dirs` like the other
+  checks.
 
 ## [0.5.0] — 2026-10-06
 

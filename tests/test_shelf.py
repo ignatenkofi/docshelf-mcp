@@ -2,6 +2,7 @@
 (no PDF dependency required)."""
 
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -1680,3 +1681,154 @@ def test_add_document_refuses_an_unreadable_same_stem_dir(
 
     assert type(err).__name__ == "SplitDirConflictError"
     assert not (cat / "private.md").exists()
+
+
+# -- #118: a foreign same-stem directory is not read as a split --------------
+
+
+def _doc_with_foreign_stem_dir(tmp_path: Path, *, git: bool = False) -> tuple[Shelf, Path]:
+    """``images.md``, a single-file document, and the user's own ``images/notes.md``.
+
+    #118's reproduction: the directory was never docshelf's, it only shares
+    the document's stem. With ``git``, everything but that directory is
+    committed — it is untracked, as a folder dropped next to a document is.
+    """
+    shelf = Shelf(tmp_path / "s").init(name="S", remote="o/r")
+    src = tmp_path / "images-src.md"
+    src.write_text("# Images\n\nHow we store zebrafinch images.\n", encoding="utf-8")
+    shelf.add_document(src, category="guides", title="images", split=False)
+    if git:
+        _git(shelf.root, "init", "-q", "-b", "main")
+        _git(shelf.root, "add", "-A")
+        _git(shelf.root, "commit", "-qm", "shelf")
+    foreign = shelf.root / "docs" / "guides" / "images"
+    foreign.mkdir()
+    (foreign / "notes.md").write_text("my own notes\n", encoding="utf-8")
+    return shelf, foreign
+
+
+def test_scan_and_rebuild_ignore_a_foreign_same_stem_dir(tmp_path: Path):
+    # The indexer took any same-stem directory for the document's sections:
+    # the user's notes.md went into INDEX.md as a section of images.md, and
+    # rebuild_index wrote a SUBINDEX.md into their directory.
+    shelf, foreign = _doc_with_foreign_stem_dir(tmp_path)
+
+    entry = next(e for e in shelf.scan() if e.relative_path == "docs/guides/images.md")
+    shelf.rebuild_index()
+
+    assert entry.section_paths == []
+    assert sorted(p.name for p in foreign.iterdir()) == ["notes.md"]
+    assert "notes.md" not in (shelf.root / "INDEX.md").read_text(encoding="utf-8")
+
+
+def test_search_keeps_a_document_next_to_a_foreign_same_stem_dir(tmp_path: Path):
+    # search skips a split parent in favour of its sections, and any same-stem
+    # directory holding a .md passed for a split: the document's own text
+    # dropped out of every search.
+    shelf, _ = _doc_with_foreign_stem_dir(tmp_path)
+
+    paths = [h["relative_path"] for h in shelf.search("zebrafinch")]
+
+    assert paths == ["docs/guides/images.md"]
+
+
+def test_doctor_does_not_take_a_foreign_dir_for_uncommitted_sections(tmp_path: Path):
+    # gitstate read the untracked foreign directory as uncommitted sections.
+    # Its advice — delete the directory and re-add with split=False — is wrong
+    # for someone else's files, and the finding suppressed stale-index and the
+    # fix=True rebuild of a genuinely stale INDEX.md.
+    shelf, foreign = _doc_with_foreign_stem_dir(tmp_path, git=True)
+    index = shelf.root / "INDEX.md"
+    index.write_text("# stale\n", encoding="utf-8")
+
+    rules = {(f.rule, f.path) for f in shelf.doctor()}
+    shelf.doctor(fix=True)
+
+    assert ("uncommitted-split-dir", "docs/guides/images") not in rules
+    assert ("stale-index", "INDEX.md") in rules
+    assert index.read_text(encoding="utf-8") != "# stale\n"
+    assert sorted(p.name for p in foreign.iterdir()) == ["notes.md"]
+
+
+@pytest.mark.parametrize("shape", ["foreign-dir", "split-with-a-stray-file", "plain-file"])
+def test_doctor_announces_the_split_dir_conflict_a_re_add_refuses_on(tmp_path: Path, shape: str):
+    # Every state add_document's pre-flight refuses on is reported first. A
+    # split with one stray file was the silent case: it stopped being
+    # split-shaped, split-out-of-sync skipped it, and the user learned of the
+    # conflict only from the SplitDirConflictError.
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    big = _big_markdown(tmp_path / "big.md", "Doc")
+    cat = shelf.root / "docs" / "big"
+    if shape == "split-with-a-stray-file":
+        assert shelf.add_document(big, category="big", title="Doc").was_split
+        stray = cat / "doc" / "notes.md"
+        stray.write_text("mine\n", encoding="utf-8")
+    else:
+        shelf.add_document(FIXTURE, category="big", title="Doc", split=False)
+        if shape == "foreign-dir":
+            stray = _asset_dir(cat, "doc") / "diagram.png"
+        else:
+            stray = cat / "doc"
+            stray.write_text("a file, not a folder\n", encoding="utf-8")
+
+    found = [f for f in shelf.doctor(fix=True) if f.rule == "split-dir-conflict"]
+
+    assert [(f.path, f.severity, f.fixed) for f in found] == [("docs/big/doc", "warning", False)]
+    assert stray.is_file()  # fix=True left it alone
+    # The advice is to move it or declare it, never to delete someone's files.
+    assert "move it aside" in found[0].suggested_fix
+    assert "extra_dirs" in found[0].suggested_fix
+    assert not re.search(r"\b(delete|remove|rm)\b", found[0].suggested_fix)
+    # Not read as the document's sections either, stray .md included.
+    assert [e.section_paths for e in shelf.scan()] == [[]]
+    # And the refusal the finding announces is real.
+    err = _refusal(lambda: shelf.add_document(big, category="big", title="Doc", overwrite=True))
+    assert type(err).__name__ == "SplitDirConflictError"
+
+
+def test_doctor_does_not_flag_a_split_docshelf_wrote(tmp_path: Path):
+    # The rule must not fire on docshelf's own output: sections, SUBINDEX.md
+    # and OS litter are a split, not a conflict.
+    shelf = Shelf(tmp_path / "s").init(name="S")
+    first = shelf.add_document(_big_markdown(tmp_path / "big.md"), category="big", title="Doc")
+    split_dir = first.document_path.parent / first.document_path.stem
+    assert (split_dir / "SUBINDEX.md").is_file()
+    (split_dir / ".DS_Store").write_bytes(b"\0")
+
+    assert not [f for f in shelf.doctor() if f.rule == "split-dir-conflict"]
+
+
+def _declare_extra_dirs(shelf: Shelf, *dirs: str) -> None:
+    manifest = shelf.root / SHELF_MANIFEST_FILENAME
+    manifest.write_text(
+        manifest.read_text(encoding="utf-8")
+        + "extra_dirs:\n"
+        + "".join(f'  - "{d}"\n' for d in dirs),
+        encoding="utf-8",
+    )
+
+
+def test_doctor_skips_a_declared_sidecar_at_a_split_path(tmp_path: Path):
+    # Declaring the directory in extra_dirs is one of the two fixes the finding
+    # offers, so declaring it has to silence it.
+    shelf = Shelf(tmp_path / "s").init(name="S", default_categories=["guides"], manifest=True)
+    _declare_extra_dirs(shelf, "docs/guides/images/")
+    shelf.add_document(FIXTURE, category="guides", title="images", split=False)
+    _asset_dir(shelf.root / "docs" / "guides")
+
+    assert [f for f in shelf.doctor() if f.path == "docs/guides/images"] == []
+
+
+def test_colliding_category_dirs_skips_a_declared_sidecar(tmp_path: Path):
+    # USAGE promises a declared sidecar sits next to the documents "without a
+    # finding", yet colliding-category-dirs walked every directory in docs/
+    # unfiltered: a sidecar "docs/Research Papers" next to the category
+    # docs/research-papers was reported as a duplicate category.
+    shelf = Shelf(tmp_path / "s").init(name="S", manifest=True)
+    _declare_extra_dirs(shelf, "docs/Research Papers")
+    shelf.add_document(FIXTURE, category="research-papers", title="P", split=False)
+    sidecar = shelf.root / "docs" / "Research Papers"
+    sidecar.mkdir()
+    (sidecar / "paper.pdf").write_bytes(b"%PDF-1.4 original")
+
+    assert [f for f in shelf.doctor() if f.rule == "colliding-category-dirs"] == []

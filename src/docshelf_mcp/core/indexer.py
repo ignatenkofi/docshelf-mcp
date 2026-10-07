@@ -242,7 +242,13 @@ def scan_shelf(shelf_root: Path) -> list[DocumentEntry]:
       sibling directory of ``<doc>.md`` if both exist).
     * ``docs/<category>/.meta.json`` — optional override file with the
       shape ``{"<doc>.md": {"title": "...", "description": "..."}}``.
+
+    A same-stem directory counts as the document's sections only when it is
+    shaped like a split (:func:`~docshelf_mcp.core.splitter.is_split_dir`).
     """
+    # Imported here: splitter imports this module for SUBINDEX_FILENAME.
+    from docshelf_mcp.core.splitter import is_split_dir
+
     docs_root = shelf_root / "docs"
     entries: list[DocumentEntry] = []
     if not docs_root.exists():
@@ -258,9 +264,13 @@ def scan_shelf(shelf_root: Path) -> list[DocumentEntry]:
 
             # Look for a sibling directory of the same stem — split sections.
             # SUBINDEX.md is navigation, not content, so it's not a section.
+            # Only a split-shaped directory is (#118): an images/ folder or the
+            # user's notes next to a document of the same stem are not its
+            # sections, so their *.md stay out of INDEX and rebuild_index
+            # writes no SUBINDEX.md into them.
             split_dir = category_dir / md_file.stem
             section_paths: list[str] = []
-            if split_dir.is_dir():
+            if is_split_dir(split_dir):
                 section_paths = sorted(
                     str(p.relative_to(shelf_root).as_posix())
                     for p in split_dir.glob("*.md")

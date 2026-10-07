@@ -374,8 +374,10 @@ def doctor(params: t.DoctorInput) -> str:
     (``NNN-*.md`` sections and ``SUBINDEX.md``). Any other directory without a
     parent document (an ``images/`` folder, a sidecar of originals) is still
     reported as ``orphaned-split-dir`` but left in place with ``fixed: false``;
+    one next to its document is ``split-dir-conflict``, never deleted;
     directories declared in ``shelf.yml`` ``extra_dirs`` are skipped (never
-    reported as orphans or empty categories, never deleted).
+    reported as orphans, conflicts, colliding or empty categories, never
+    deleted).
     """
     try:
         return _serialize(t.doctor(params))

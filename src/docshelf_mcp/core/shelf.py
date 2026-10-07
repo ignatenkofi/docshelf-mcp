@@ -1152,7 +1152,8 @@ class Shelf:
 
         Detects: stale ``.meta.json`` entries, orphaned split directories,
         split sections out of sync with their parent document, split sections
-        git does not track, a stale ``INDEX.md``, duplicate titles within a
+        git does not track, something other than a split at a document's
+        split path, a stale ``INDEX.md``, duplicate titles within a
         category, and empty categories. With ``fix=True`` the *safe* subset is
         applied — prune stale meta entries, delete orphaned split dirs, and
         rebuild the index — and those findings are marked ``fixed``.
@@ -1163,10 +1164,12 @@ class Shelf:
         (:func:`is_split_dir` — ``NNN-*.md`` sections and ``SUBINDEX.md``, no
         subdirectories). Any other directory without a parent document — an
         ``images/`` folder, a sidecar of originals — is still reported as
-        ``orphaned-split-dir`` but left in place, ``fixed=False``. Directories
-        declared in ``shelf.yml`` ``extra_dirs`` are neither categories nor
-        orphans here — never reported as such, never deleted — as in the
-        shelf-spec validator (SPEC §2, §9.1).
+        ``orphaned-split-dir`` but left in place, ``fixed=False``. One that
+        does have a parent document is ``split-dir-conflict``: not read as its
+        sections, never deleted. Directories declared in ``shelf.yml``
+        ``extra_dirs`` are neither categories, orphans nor conflicts here —
+        never reported as such, never deleted — as in the shelf-spec validator
+        (SPEC §2, §9.1).
 
         Uncommitted split directories suppress both the ``stale-index`` finding
         and the rebuild (#97): while they are there the index on disk and a
@@ -1341,6 +1344,34 @@ class Shelf:
                         )
                     )
 
+            # split-dir-conflict (#118): the path a document's sections live at
+            # holds something docshelf did not write — an images/ folder next
+            # to images.md, a split someone dropped notes.md into, a plain
+            # file. It is not read as the document's sections, and re-adding
+            # the document refuses with SplitDirConflictError whatever
+            # `overwrite` says: the same test as add_document's pre-flight, so
+            # the refusal is announced here first. Never deleted, not even by
+            # fix=True — the advice is to move it or declare it.
+            for md in md_files:
+                split_dir = category_dir / md.stem
+                if rel(split_dir) in extra_dirs:
+                    continue
+                if split_dir.exists() and not is_split_dir(split_dir):
+                    findings.append(
+                        DoctorFinding(
+                            "split-dir-conflict",
+                            "warning",
+                            rel(split_dir),
+                            "not a docshelf split directory (anything but a directory "
+                            "of NNN-*.md sections and SUBINDEX.md, or one that cannot "
+                            f"be read), so it is not read as the sections of {md.name}, "
+                            "and re-adding that document refuses whatever overwrite says",
+                            "move it aside (for a split, just the files docshelf did not "
+                            "write), or declare it in shelf.yml extra_dirs — doctor "
+                            "never deletes it",
+                        )
+                    )
+
         # duplicate-title within a category (from the resolved entries).
         by_cat_title: dict[tuple[str, str], list[str]] = {}
         for e in self.scan():
@@ -1366,8 +1397,9 @@ class Shelf:
         # ambiguously under the slug-based category filter (#31), yet the
         # per-category checks above key on each literal dir name and never see
         # it (#49). Group by slug and flag any slug backed by more than one dir.
+        # A declared sidecar is not a category (#118), so it collides with none.
         by_slug: dict[str, list[str]] = {}
-        for category_dir in sorted(p for p in docs_root.iterdir() if p.is_dir()):
+        for category_dir in category_dirs:
             by_slug.setdefault(slugify(category_dir.name, max_len=80), []).append(category_dir.name)
         for slug, names in sorted(by_slug.items()):
             if len(names) > 1:
@@ -1529,8 +1561,10 @@ class Shelf:
                 continue
             # Skip a split document's whole-file parent — its content is fully
             # covered by the section files, which are the better fetch targets.
+            # A same-stem folder of someone else's .md files covers none of it
+            # (#118), so only a split-shaped directory counts.
             split_dir = md_file.parent / md_file.stem
-            if split_dir.is_dir() and any(split_dir.glob("*.md")):
+            if is_split_dir(split_dir) and any(split_dir.glob("*.md")):
                 continue
             cached = self._cached_corpus(md_file)
             if cached is None:

@@ -24,6 +24,10 @@ Detection is deliberately narrow, mirroring memshelf's ``local-split-dir``:
 
 * only a directory sitting next to a document of the same stem (one without a
   parent is ``orphaned-split-dir``, a different finding);
+* only a directory shaped like a split (:func:`is_split_dir`). A same-stem
+  folder of someone else's files is not sections — the indexer does not read
+  it, and ``doctor`` names it ``split-dir-conflict`` — so "delete it and re-add
+  the document" is the wrong advice for it (#118);
 * only on a git shelf — "exists only in this working copy" means nothing
   without a repository, and a plain shelf renders and reads its own splits
   consistently;
@@ -35,6 +39,8 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
+
+from docshelf_mcp.core.splitter import is_split_dir
 
 #: docshelf's per-split navigation file — it lives inside the split directory.
 SUBINDEX_FILENAME = "SUBINDEX.md"
@@ -79,7 +85,7 @@ def uncommitted_split_dirs(shelf_root: str | Path) -> list[str]:
         if document.name == SUBINDEX_FILENAME:
             continue
         split_dir = document.with_suffix("")
-        if not split_dir.is_dir():
+        if not is_split_dir(split_dir):
             continue
         rel = split_dir.relative_to(root).as_posix()
         if not _tracks_anything(root, rel):
