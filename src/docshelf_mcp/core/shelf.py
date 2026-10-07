@@ -422,13 +422,17 @@ class Shelf:
     >>> shelf.add_document("manual.pdf", category="laptops", title="ThinkPad X1")
     >>> shelf.rebuild_index()
 
-    ``hints`` replaces the lines INDEX.md and SUBINDEX.md add around the
+    ``hints`` rewords the lines INDEX.md and SUBINDEX.md add around the
     entries, which name docshelf's tools (see :class:`IndexHints`). It belongs
     to the instance, not to one call: every render uses it, and so does
     :meth:`doctor`, whose ``stale-index`` compares INDEX.md with a fresh render
     — a host's own wording must not read as an out-of-date index, and
     ``doctor(fix=True)`` must not put docshelf's wording back.
     """
+
+    #: Class-level default, so a subclass whose own ``__init__`` does not call
+    #: ``super().__init__`` still renders docshelf's wording.
+    hints: IndexHints = DEFAULT_HINTS
 
     def __init__(self, root: Path | str, *, hints: IndexHints = DEFAULT_HINTS) -> None:
         self.root = Path(root).expanduser().resolve()

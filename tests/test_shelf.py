@@ -211,6 +211,23 @@ def test_hints_reach_index_and_subindex_and_doctor_agrees(tmp_path: Path):
     assert "stale-index" in {f.rule for f in Shelf(shelf.root).doctor()}
 
 
+def test_a_subclass_that_skips_super_init_still_renders(tmp_path: Path):
+    # hints became an instance attribute set in __init__, so a subclass with
+    # its own __init__ that never calls super() broke on rebuild_index with an
+    # AttributeError; it worked before the hook (#197 review).
+    Shelf(tmp_path / "s").init(name="S")
+    expected = (tmp_path / "s" / "INDEX.md").read_text(encoding="utf-8")
+
+    class OwnInit(Shelf):
+        def __init__(self, root: Path) -> None:
+            self.root = Path(root).resolve()
+            self._config = None
+
+    OwnInit(tmp_path / "s").rebuild_index()
+
+    assert (tmp_path / "s" / "INDEX.md").read_text(encoding="utf-8") == expected
+
+
 def test_add_document_rebuilds_index_exactly_once(tmp_path: Path, monkeypatch):
     shelf = Shelf(tmp_path / "s").init(name="S")
     calls = {"n": 0}
