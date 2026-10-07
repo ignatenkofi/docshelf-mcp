@@ -100,8 +100,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The pip-audit gate no longer passes an audit of nothing** (#119). It
   printed only an advisory count, and an empty report failed it only as 23
   "stale ignore" errors while the accepted list is non-empty. It now counts
-  the packages the report audited, names them in its summary line and fails
-  at zero, whatever the ignore list holds. The `dependabot.yml` command to
+  the packages the report audited — entries with a version and a vulns
+  list — names the count in its summary line and fails at zero, whatever
+  the ignore list holds, and on an entry that has neither a verdict nor a
+  `skip_reason`. The `dependabot.yml` command to
   reproduce the accepted advisories needed the uncommitted `uv.lock`; it now
   resolves from `pyproject.toml`. `security.yml` says that the pipeline's
   SCA stage finds no lock file here and skips by construction, and that

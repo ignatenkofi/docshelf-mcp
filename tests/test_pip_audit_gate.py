@@ -74,6 +74,22 @@ def test_skipped_packages_are_not_counted_as_audited(tmp_path: Path):
     assert "0 packages audited (1 skipped)" in result.stdout
 
 
+@pytest.mark.parametrize(
+    "entry",
+    [{}, {"name": "x"}, {"name": "x", "version": "1.0"}, {"name": "x", "vulns": []}],
+    ids=["empty", "name-only", "no-vulns", "no-version"],
+)
+def test_an_entry_without_a_verdict_is_not_counted_as_audited(tmp_path: Path, entry: dict):
+    # Anything without a skip_reason counted as audited: {"dependencies": [{}]}
+    # passed as "1 packages audited" (#119 review). A verdict is a version and
+    # a vulns list; an entry with neither that nor a skip_reason fails the gate.
+    result = gate({"dependencies": [entry], "fixes": []}, empty_ignore(tmp_path), tmp_path)
+
+    assert result.returncode == 1, result.stdout
+    assert "0 packages audited (0 skipped, 1 unreadable)" in result.stdout
+    assert "is this pip-audit's JSON?" in result.stdout
+
+
 def test_a_real_audit_passes_and_names_the_package_count(tmp_path: Path):
     # Positive control: every accepted id reported, nothing else — the CI
     # shape of a clean run. The summary says how much was checked.

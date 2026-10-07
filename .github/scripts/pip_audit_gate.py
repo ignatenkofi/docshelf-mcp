@@ -5,6 +5,9 @@ Usage: pip_audit_gate.py REPORT.json IGNORE_FILE [--today YYYY-MM-DD]
 Fails (exit 1) when
   * the report audits no package at all — "0 advisories" over nothing is
     not a clean result (#119);
+  * an entry carries neither a verdict (a version and a vulns list) nor a
+    skip_reason — the report is not pip-audit's, and that entry was not
+    audited;
   * the ignore file's `review-by` date has passed — the acceptance expired;
   * pip-audit reports an id the ignore file does not list — a new advisory;
   * the ignore file lists an id pip-audit no longer reports — a stale
@@ -42,11 +45,11 @@ def read_ignore(path: str) -> tuple[dt.date, set[str]]:
     return review_by, ids
 
 
-def reported(path: str) -> tuple[int, int, dict[str, str]]:
-    """(packages audited, packages skipped, advisory id -> "name version")."""
+def reported(path: str) -> tuple[int, int, int, dict[str, str]]:
+    """(audited, skipped, unreadable entries, advisory id -> "name version")."""
     with open(path, encoding="utf-8") as fh:
         report = json.load(fh)
-    audited = skipped = 0
+    audited = skipped = unreadable = 0
     found: dict[str, str] = {}
     for dep in report["dependencies"]:
         # A dependency pip-audit could not look up carries `skip_reason` and
@@ -54,10 +57,15 @@ def reported(path: str) -> tuple[int, int, dict[str, str]]:
         if "skip_reason" in dep:
             skipped += 1
             continue
+        # A verdict is a version and a list of advisories, empty when clean.
+        # Anything else was not audited, whatever it lacks a skip_reason for.
+        if "version" not in dep or not isinstance(dep.get("vulns"), list):
+            unreadable += 1
+            continue
         audited += 1
-        for vuln in dep.get("vulns", []):
-            found[vuln["id"]] = f"{dep['name']} {dep['version']}"
-    return audited, skipped, found
+        for vuln in dep["vulns"]:
+            found[vuln["id"]] = f"{dep.get('name', '?')} {dep['version']}"
+    return audited, skipped, unreadable, found
 
 
 def main() -> int:
@@ -68,12 +76,17 @@ def main() -> int:
     args = parser.parse_args()
 
     review_by, accepted = read_ignore(args.ignore_file)
-    audited, skipped, found = reported(args.report)
+    audited, skipped, unreadable, found = reported(args.report)
     errors = []
     if audited == 0:
         errors.append(
             f"the report audits 0 packages ({skipped} skipped) — nothing was checked, "
             "so its advisory count means nothing; is the requirements file empty?"
+        )
+    if unreadable:
+        errors.append(
+            f"{unreadable} report entr{'y has' if unreadable == 1 else 'ies have'} neither "
+            "a version with a vulns list nor a skip_reason — is this pip-audit's JSON?"
         )
     if args.today > review_by:
         errors.append(
@@ -88,8 +101,9 @@ def main() -> int:
         for vid in sorted(accepted - set(found)):
             errors.append(f"stale ignore {vid}: pip-audit no longer reports it — remove it")
 
+    unread = f", {unreadable} unreadable" if unreadable else ""
     print(
-        f"pip-audit: {audited} packages audited ({skipped} skipped), "
+        f"pip-audit: {audited} packages audited ({skipped} skipped{unread}), "
         f"{len(found)} advisories, {len(accepted)} accepted "
         f"(review-by {review_by}), {len(errors)} problem(s)"
     )
