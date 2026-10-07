@@ -507,6 +507,105 @@ def test_convert_pdf_not_guarded(tmp_path: Path):
         t.convert_pdf(t.ConvertPdfInput(pdf_path=str(bad), out_dir=str(tmp_path / "out")))
 
 
+# A converted document big enough to split: a preamble and three H2 chapters.
+_SPLITTABLE = "# Report\n\n" + "".join(
+    f"## Chapter {i}\n\n" + ("Lorem ipsum dolor sit amet. " * 40 + "\n\n") * 30 for i in range(1, 4)
+)
+
+
+@pytest.fixture
+def stub_pdf(tmp_path: Path, monkeypatch) -> Path:
+    """A ``projects.pdf`` whose conversion is stubbed: these tests are about
+    where convert_pdf writes, not about the PDF engine."""
+    monkeypatch.setattr(t, "pdf_to_markdown", lambda path, quality="fast": _SPLITTABLE)
+    pdf = tmp_path / "projects.pdf"
+    pdf.write_bytes(b"%PDF-1.4 stub")
+    return pdf
+
+
+def test_convert_pdf_splits_and_reruns_over_its_own_output(tmp_path: Path, stub_pdf: Path):
+    out = tmp_path / "out"
+    params = t.ConvertPdfInput(pdf_path=str(stub_pdf), out_dir=str(out), split=True)
+
+    first = t.convert_pdf(params)
+    assert first["status"] == "ok" and first["split_into"] == 4
+    names = sorted(p.name for p in (out / "projects").iterdir())
+    assert names == ["001-preamble.md", "002-chapter-1.md", "003-chapter-2.md", "004-chapter-3.md"]
+    assert (out / "projects.md").read_text(encoding="utf-8").startswith("# Report")
+
+    # A re-run over its own split (Finder litter and all) is still idempotent.
+    (out / "projects" / ".DS_Store").write_bytes(b"\0")
+    second = t.convert_pdf(params)
+    assert second["split_into"] == 4
+    assert sorted(p.name for p in (out / "projects").iterdir()) == names
+
+
+def test_convert_pdf_refuses_a_foreign_stem_dir(tmp_path: Path, stub_pdf: Path):
+    # out_dir is any directory the caller names. A projects/ there holding the
+    # user's own files was rmtree'd by the split's idempotent rewrite, and the
+    # user's projects.md replaced on the way.
+    out = tmp_path / "out"
+    victim = out / "projects"
+    victim.mkdir(parents=True)
+    (victim / "my-unrelated-notes.txt").write_text("precious user data\n", encoding="utf-8")
+    (out / "projects.md").write_text("user's own projects.md\n", encoding="utf-8")
+    params = t.ConvertPdfInput(pdf_path=str(stub_pdf), out_dir=str(out), split=True)
+
+    err = None
+    try:
+        t.convert_pdf(params)
+    except FileExistsError as exc:
+        err = exc
+
+    assert sorted(p.name for p in victim.iterdir()) == ["my-unrelated-notes.txt"]
+    assert type(err).__name__ == "SplitDirConflictError"
+    # Refused before <stem>.md was written.
+    assert (out / "projects.md").read_text(encoding="utf-8") == "user's own projects.md\n"
+
+    # Over MCP the refusal is the structured error, not a traceback.
+    from docshelf_mcp import server
+
+    payload = json.loads(server.convert_pdf(params))
+    assert payload["status"] == "error" and payload["type"] == "SplitDirConflictError"
+
+
+def test_convert_pdf_refuses_a_regular_file_at_the_stem_path(tmp_path: Path, stub_pdf: Path):
+    # A plain file named like the split directory blocks the split as well; the
+    # refusal must still come before projects.md is written.
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "projects").write_text("a file, not a folder\n", encoding="utf-8")
+    params = t.ConvertPdfInput(pdf_path=str(stub_pdf), out_dir=str(out), split=True)
+
+    with pytest.raises(FileExistsError) as excinfo:
+        t.convert_pdf(params)
+
+    assert type(excinfo.value).__name__ == "SplitDirConflictError"
+    assert (out / "projects").read_text(encoding="utf-8") == "a file, not a folder\n"
+    assert not (out / "projects.md").exists()
+
+
+def test_convert_pdf_without_split_leaves_a_foreign_stem_dir_alone(tmp_path: Path, stub_pdf):
+    # Without split the directory is never touched, so there is nothing to refuse.
+    out = tmp_path / "out"
+    victim = out / "projects"
+    victim.mkdir(parents=True)
+    (victim / "notes.txt").write_text("keep\n", encoding="utf-8")
+
+    res = t.convert_pdf(t.ConvertPdfInput(pdf_path=str(stub_pdf), out_dir=str(out)))
+    assert res["status"] == "ok" and res["split_into"] == 0
+    assert (out / "projects.md").is_file()
+    assert sorted(p.name for p in victim.iterdir()) == ["notes.txt"]
+
+
+@pytest.mark.asyncio
+async def test_doctor_is_annotated_destructive():
+    # fix=true deletes directories (orphaned splits). A client that decides
+    # whether to ask the user first reads this hint, and it said False.
+    tools = {tool.name: tool for tool in await mcp.list_tools()}
+    assert tools["docshelf_doctor"].annotations.destructive_hint is True
+
+
 def test_input_validation_rejects_extra_fields():
     from pydantic import ValidationError
 

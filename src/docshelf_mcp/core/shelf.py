@@ -59,9 +59,11 @@ from docshelf_mcp.core.slugify import slugify
 from docshelf_mcp.core.splitter import (
     DEFAULT_SPLIT_THRESHOLD_BYTES,
     SectionWarning,
+    SplitDirConflictError,
     _expected_split_names,
     clean_markdown,
     is_empty_conversion,
+    is_split_dir,
     lint_sections,
     should_split,
     split_by_h2,
@@ -77,6 +79,7 @@ __all__ = [
     "ReadResult",
     "DoctorFinding",
     "DocumentExistsError",
+    "SplitDirConflictError",
 ]
 
 #: Process-wide search corpus cache: absolute path → (mtime, size, text).
@@ -255,6 +258,20 @@ def _read_spec_manifest(shelf_root: Path) -> dict | None:
     except (OSError, UnicodeDecodeError, yaml.YAMLError):
         return None
     return data if isinstance(data, dict) else None
+
+
+def _manifest_extra_dirs(manifest: dict | None) -> set[str]:
+    """Sidecar directories declared in ``shelf.yml`` ``extra_dirs``, as
+    shelf-root-relative posix strings.
+
+    Normalized the way openshelf's validator does it (``Path(d).as_posix()``),
+    so a trailing slash in the manifest still matches. Entries that are not
+    strings are ignored — schema validation is openshelf's job. SPEC §2, §9.1.
+    """
+    declared = manifest.get("extra_dirs") if manifest else None
+    if not isinstance(declared, list):
+        return set()
+    return {Path(d).as_posix() for d in declared if isinstance(d, str) and d}
 
 
 def _manifest_config_conflicts(manifest: dict, config: ShelfConfig) -> list[str]:
@@ -523,6 +540,10 @@ class Shelf:
             ValueError: ``source`` is not a supported input type.
             DocumentExistsError: The target slug is occupied by a different
                 document and ``overwrite`` is False.
+            SplitDirConflictError: ``docs/<category>/<stem>/`` exists and is not
+                a docshelf split directory (:func:`is_split_dir`), so writing
+                or wiping the document's sections would delete it. Raised
+                whatever ``overwrite`` says.
         """
         source = Path(source).expanduser().resolve()
         if not source.exists():
@@ -568,6 +589,24 @@ class Shelf:
                 "distinct title/category, or pass overwrite=True to replace it."
             )
 
+        # Foreign-directory guard: both branches below delete `<stem>/` — the
+        # split rewrites it, the unsplit wipes it as stale sections. Only a
+        # directory shaped like a split is ours to delete; an images/ folder
+        # that happens to share the stem is not, and overwrite=True does not
+        # change that (it replaces a document, not a directory). Checked
+        # before conversion and before doc_path is written, so a refusal
+        # leaves nothing half-added.
+        split_dir = category_dir / doc_stem
+        if split_dir.exists() and not is_split_dir(split_dir):
+            raise SplitDirConflictError(
+                f"{split_dir.relative_to(self.root).as_posix()} exists and is not "
+                "a docshelf split directory (it holds something other than "
+                "NNN-*.md sections and SUBINDEX.md, or cannot be read); adding "
+                f"title {title!r} would delete it with the document's sections. "
+                "Choose a distinct title/slug, or move the directory aside — "
+                "overwrite=True does not apply to it."
+            )
+
         raw_md = source_to_markdown(source, quality=quality)
         converted_from_pdf = suffix == ".pdf"
 
@@ -597,19 +636,22 @@ class Shelf:
         section_paths: list[Path] = []
         was_split = False
         unsplit = False
-        split_dir = category_dir / doc_stem
         if split and should_split(cleaned, self.config.split_threshold_bytes):
             sections = split_by_h2(cleaned)
             if len(sections) >= 2:
                 section_paths = write_split_files(sections, split_dir)
                 was_split = True
                 warnings.extend(lint_sections(sections))
-        elif split_dir.is_dir() and not should_split(cleaned, self.config.split_threshold_bytes):
+        elif is_split_dir(split_dir) and not should_split(
+            cleaned, self.config.split_threshold_bytes
+        ):
             # The new content no longer qualifies for splitting, so its old
             # section files are stale — wipe them. Gated on the *content*, not
             # the `split` argument: re-adding still-splittable content with
             # split=False leaves the existing valid split intact instead of
-            # silently collapsing it (#47).
+            # silently collapsing it (#47). is_split_dir, not is_dir: the guard
+            # above already refused a foreign directory; this keeps the rmtree
+            # itself from ever reaching one.
             import shutil
 
             shutil.rmtree(split_dir)
@@ -772,6 +814,9 @@ class Shelf:
         Deletes the document file, its split-section directory (if any),
         and its ``.meta.json`` entry, then rebuilds INDEX.md. With
         ``dry_run=True`` nothing is touched; the result lists what would go.
+        A same-stem directory that is not shaped like a split
+        (:func:`is_split_dir`) is not the document's: it is left in place and
+        not listed, and ``was_split`` is False.
 
         Args:
             category: Category the document lives in (same form as used
@@ -799,7 +844,7 @@ class Shelf:
             )
 
         split_dir = category_dir / doc_path.stem
-        was_split = split_dir.is_dir()
+        was_split = is_split_dir(split_dir)
         removed: list[Path] = [doc_path] + ([split_dir] if was_split else [])
 
         if not dry_run:
@@ -1114,6 +1159,15 @@ class Shelf:
         Everything else is report-only. Findings are returned sorted for stable
         diffing.
 
+        An orphaned directory is only deleted when it is shaped like a split
+        (:func:`is_split_dir` — ``NNN-*.md`` sections and ``SUBINDEX.md``, no
+        subdirectories). Any other directory without a parent document — an
+        ``images/`` folder, a sidecar of originals — is still reported as
+        ``orphaned-split-dir`` but left in place, ``fixed=False``. Directories
+        declared in ``shelf.yml`` ``extra_dirs`` are neither categories nor
+        orphans here — never reported as such, never deleted — as in the
+        shelf-spec validator (SPEC §2, §9.1).
+
         Uncommitted split directories suppress both the ``stale-index`` finding
         and the rebuild (#97): while they are there the index on disk and a
         render of the working tree describe different trees, so "out of date"
@@ -1131,8 +1185,16 @@ class Shelf:
         def rel(p: Path) -> str:
             return p.relative_to(self.root).as_posix()
 
+        # Declared sidecars (shelf.yml extra_dirs) are neither categories nor
+        # orphaned splits — skipped here as openshelf's validator skips them.
+        manifest = _read_spec_manifest(self.root)
+        extra_dirs = _manifest_extra_dirs(manifest)
+        category_dirs = sorted(
+            p for p in docs_root.iterdir() if p.is_dir() and rel(p) not in extra_dirs
+        )
+
         structural_fix = False
-        for category_dir in sorted(p for p in docs_root.iterdir() if p.is_dir()):
+        for category_dir in category_dirs:
             md_files = sorted(category_dir.glob("*.md"))
             stems = {p.stem for p in md_files}
 
@@ -1221,9 +1283,13 @@ class Shelf:
                                 f.fixed = True
                         structural_fix = True
 
-            # orphaned-split-dir: a subdir with no parent <stem>.md.
+            # orphaned-split-dir: a subdir with no parent <stem>.md. The rule
+            # name stays for spec parity (and memshelf re-emits it), but only
+            # a split-shaped directory is ours to delete under fix=True.
             for sub in sorted(p for p in category_dir.iterdir() if p.is_dir()):
-                if sub.stem not in stems:
+                if sub.stem in stems or rel(sub) in extra_dirs:
+                    continue
+                if is_split_dir(sub):
                     f = DoctorFinding(
                         "orphaned-split-dir",
                         "warning",
@@ -1235,12 +1301,26 @@ class Shelf:
                         shutil.rmtree(sub)
                         f.fixed = True
                         structural_fix = True
-                    findings.append(f)
+                else:
+                    f = DoctorFinding(
+                        "orphaned-split-dir",
+                        "warning",
+                        rel(sub),
+                        "directory has no parent document and is not a docshelf "
+                        "split directory (it holds something other than NNN-*.md "
+                        "sections and SUBINDEX.md, or cannot be read) — fix=True "
+                        "leaves it in place",
+                        "move it out of docs/, or declare it in shelf.yml "
+                        "extra_dirs — doctor only deletes directories docshelf wrote",
+                    )
+                findings.append(f)
 
             # split-out-of-sync: on-disk sections differ from a fresh split.
+            # A same-stem directory that is not split-shaped is not this
+            # document's sections, so there is nothing to compare.
             for md in md_files:
                 split_dir = category_dir / md.stem
-                if not split_dir.is_dir():
+                if not is_split_dir(split_dir):
                     continue
                 try:
                     text = md.read_text(encoding="utf-8", errors="replace")
@@ -1339,7 +1419,6 @@ class Shelf:
         # one is never flagged (the manifest requirement is openshelf's). This
         # mirrors openshelf's validator rule of the same name so both tools
         # describe the drift identically.
-        manifest = _read_spec_manifest(self.root)
         if manifest is not None:
             conflicts = _manifest_config_conflicts(manifest, self.config)
             if conflicts:

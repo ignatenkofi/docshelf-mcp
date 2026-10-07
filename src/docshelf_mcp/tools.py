@@ -21,7 +21,9 @@ from docshelf_mcp.config import default_shelf_root
 from docshelf_mcp.core.converter import SUPPORTED_INPUT_GLOBS, Quality, pdf_to_markdown
 from docshelf_mcp.core.shelf import SHELF_METADATA_FILENAME, Shelf
 from docshelf_mcp.core.splitter import (
+    SplitDirConflictError,
     clean_markdown,
+    is_split_dir,
     should_split,
     split_by_h2,
     write_split_files,
@@ -293,7 +295,10 @@ class DoctorInput(_BaseInput):
     fix: bool = Field(
         default=False,
         description="Apply the safe fixes (prune stale meta entries, delete "
-        "orphaned split dirs, rebuild INDEX). Other findings stay report-only.",
+        "orphaned split dirs, rebuild INDEX). Other findings stay report-only. "
+        "Only directories shaped like a docshelf split (NNN-*.md sections, "
+        "SUBINDEX.md) are deleted; any other orphaned directory is reported "
+        "and left in place.",
     )
     shelf_path: str | None = Field(default=None, description="Path to the shelf root directory.")
 
@@ -343,7 +348,9 @@ class ConvertPdfInput(_BaseInput):
     )
     split: bool = Field(
         default=False,
-        description="If True, also split the converted Markdown by H2 into a sibling subdirectory.",
+        description="If True, also split the converted Markdown by H2 into a sibling "
+        "subdirectory <stem>/, rewritten on every run. Refused if <stem>/ already "
+        "exists and is not a split from an earlier run.",
     )
 
 
@@ -690,13 +697,29 @@ def convert_pdf(params: ConvertPdfInput) -> dict:
     raw = pdf_to_markdown(pdf_path, quality=params.quality)
     cleaned = clean_markdown(raw)
     out_md = out_dir / f"{pdf_path.stem}.md"
+    split_dir = out_dir / pdf_path.stem
+
+    sections: list[tuple[str, str]] = []
+    if params.split and should_split(cleaned):
+        sections = split_by_h2(cleaned)
+        if len(sections) < 2:
+            sections = []
+    # out_dir is any directory the caller names, not a shelf, so a <stem>/
+    # there may well be the user's own. The split rewrites it wholesale:
+    # refuse unless it is a split this tool wrote before (a re-run stays
+    # idempotent), and refuse before <stem>.md is written.
+    if sections and split_dir.exists() and not is_split_dir(split_dir):
+        raise SplitDirConflictError(
+            f"{split_dir} exists and is not a split directory from an earlier "
+            "run (it holds something other than NNN-*.md sections, or cannot "
+            "be read); splitting would delete it. Move it aside, choose another "
+            "out_dir, or pass split=false."
+        )
     out_md.write_text(cleaned, encoding="utf-8")
 
     section_paths: list[Path] = []
-    if params.split and should_split(cleaned):
-        sections = split_by_h2(cleaned)
-        if len(sections) >= 2:
-            section_paths = write_split_files(sections, out_dir / pdf_path.stem)
+    if sections:
+        section_paths = write_split_files(sections, split_dir)
 
     return {
         "status": "ok",

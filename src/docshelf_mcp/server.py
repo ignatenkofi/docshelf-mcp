@@ -353,7 +353,9 @@ def rebuild_index(params: t.RebuildIndexInput) -> str:
     annotations={
         "title": "Check shelf integrity",
         "readOnlyHint": False,
-        "destructiveHint": False,
+        # fix=true deletes directories (orphaned splits): a client deciding
+        # whether to ask first must not be told otherwise.
+        "destructiveHint": True,
         "idempotentHint": True,
         "openWorldHint": False,
     },
@@ -367,6 +369,13 @@ def doctor(params: t.DoctorInput) -> str:
     prune stale meta entries, delete orphaned split dirs, and rebuild the
     index (other findings stay report-only). Findings are sorted for stable
     diffing.
+
+    ``fix=true`` deletes only directories shaped like a docshelf split
+    (``NNN-*.md`` sections and ``SUBINDEX.md``). Any other directory without a
+    parent document (an ``images/`` folder, a sidecar of originals) is still
+    reported as ``orphaned-split-dir`` but left in place with ``fixed: false``;
+    directories declared in ``shelf.yml`` ``extra_dirs`` are skipped (never
+    reported as orphans or empty categories, never deleted).
     """
     try:
         return _serialize(t.doctor(params))
@@ -437,7 +446,11 @@ def convert_pdf(params: t.ConvertPdfInput) -> str:
     """Standalone PDF → Markdown conversion (no shelf, no INDEX update).
 
     Use when you want the converted file but don't yet want to commit it
-    to a shelf. Optionally splits the result by H2.
+    to a shelf. Writes ``<out_dir>/<stem>.md``, replacing a file of that name.
+    With ``split=true`` the H2 sections go to ``<out_dir>/<stem>/``, which is
+    rewritten on every run; the call refuses (``SplitDirConflictError``,
+    nothing written) if that directory exists and is not a split from an
+    earlier run — it holds anything besides ``NNN-*.md`` sections.
     """
     try:
         return _serialize(t.convert_pdf(params))
