@@ -45,11 +45,13 @@ from docshelf_mcp.core.converter import (
 from docshelf_mcp.core.fsutil import atomic_write_text
 from docshelf_mcp.core.gitstate import uncommitted_split_dirs
 from docshelf_mcp.core.indexer import (
+    DEFAULT_HINTS,
     DEFAULT_PREAMBLE,
     DEFAULT_SUBINDEX_THRESHOLD,
     SUBINDEX_FILENAME,
     URL_PROVIDERS,
     DocumentEntry,
+    IndexHints,
     _title_from_filename,
     build_index,
     scan_shelf,
@@ -386,10 +388,18 @@ class Shelf:
     ...     remote="https://github.com/me/my-docs")
     >>> shelf.add_document("manual.pdf", category="laptops", title="ThinkPad X1")
     >>> shelf.rebuild_index()
+
+    ``hints`` replaces the lines INDEX.md and SUBINDEX.md add around the
+    entries, which name docshelf's tools (see :class:`IndexHints`). It belongs
+    to the instance, not to one call: every render uses it, and so does
+    :meth:`doctor`, whose ``stale-index`` compares INDEX.md with a fresh render
+    — a host's own wording must not read as an out-of-date index, and
+    ``doctor(fix=True)`` must not put docshelf's wording back.
     """
 
-    def __init__(self, root: Path | str) -> None:
+    def __init__(self, root: Path | str, *, hints: IndexHints = DEFAULT_HINTS) -> None:
         self.root = Path(root).expanduser().resolve()
+        self.hints = hints
         self._config: ShelfConfig | None = None
 
     # ------------------------------------------------------------------ config
@@ -1103,6 +1113,7 @@ class Shelf:
             subindex_threshold=cfg.subindex_threshold_sections,
             provider=cfg.provider,
             url_template=cfg.url_template,
+            hints=self.hints,
         )
 
     def rebuild_index(self) -> Path:
@@ -1117,6 +1128,7 @@ class Shelf:
             branch=cfg.branch,
             provider=cfg.provider,
             url_template=cfg.url_template,
+            hints=self.hints,
         )
         index_path = self.root / "INDEX.md"
         atomic_write_text(index_path, self._index_text(entries))

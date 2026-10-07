@@ -24,6 +24,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   README names what 3.14 cannot install from wheels: `[high-quality]`
   anywhere (Pillow 10), `[pdf]` / `[formats]` on Intel Macs and macOS 13
   (onnxruntime).
+- **A host can replace the lines that name docshelf's tools**
+  (memshelf-mcp#197). An empty INDEX.md says to use `add_document`, and the
+  footers of INDEX.md and SUBINDEX.md say to call `rebuild_index`; a host
+  serving the shelf under other tools (memshelf) passes its own lines as
+  `Shelf(root, hints=IndexHints(...))`. The hints live on the `Shelf`, so
+  every render and `doctor`'s `stale-index` check use the same wording.
+  Without hints the output is byte-for-byte what it was.
 
 ### Changed
 - **`docshelf_doctor` is annotated `destructiveHint: true`.** `fix=true`

@@ -5,6 +5,7 @@ from pathlib import Path
 from docshelf_mcp.core.indexer import (
     SUBINDEX_FILENAME,
     DocumentEntry,
+    IndexHints,
     build_index,
     build_subindex,
     raw_github_url,
@@ -143,6 +144,25 @@ def test_build_index_empty_shelf():
     out = build_index("Test Shelf", [], remote="https://github.com/me/r")
     assert "# Test Shelf" in out
     assert "No documents yet" in out
+
+
+def test_an_empty_hint_drops_its_line_and_the_footer_rule():
+    # A host that wants no footer at all must not be left with a bare `---`.
+    entry = DocumentEntry(
+        category="net",
+        title="Manual",
+        description="",
+        relative_path="docs/net/manual.md",
+        size_bytes=2048,
+        section_paths=["docs/net/manual/001-intro.md"],
+    )
+    bare = IndexHints(empty="", index_footer="", subindex_footer="")
+
+    assert build_index("S", [], preamble="", hints=bare) == "# S\n"
+    for text in (build_index("S", [entry], hints=bare), build_subindex(entry, hints=bare)):
+        assert "---" not in text
+        assert "docshelf-mcp" not in text
+        assert text.endswith("\n") and not text.endswith("\n\n\n")
 
 
 def test_build_index_categorisation():

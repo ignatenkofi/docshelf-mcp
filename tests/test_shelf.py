@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from docshelf_mcp.core.indexer import IndexHints
 from docshelf_mcp.core.shelf import (
     SHELF_MANIFEST_FILENAME,
     SHELF_METADATA_FILENAME,
@@ -154,6 +155,54 @@ def test_split_document_gets_subindex(tmp_path: Path):
     assert "sections: 5" in idx or "sections: 6" in idx  # preamble may add one
     assert shelf.search("Lorem")  # body text is findable...
     assert not any("SUBINDEX" in h["relative_path"] for h in shelf.search("Big Document sections"))
+
+
+# A host's own wording, shaped like memshelf's: its tools are `shelve` and
+# `rebuild`, and it has neither add_document nor rebuild_index.
+HOST_HINTS = IndexHints(
+    empty="_Nothing shelved yet. Use `memshelf shelve` to start._",
+    index_footer="*Rendered by memshelf. A bot-owned shelf leaves this file to the bot.*",
+    subindex_footer="*Rendered by memshelf. See `INDEX.md` at the shelf root.*",
+)
+
+
+def test_hints_reach_index_and_subindex_and_doctor_agrees(tmp_path: Path):
+    # memshelf renders INDEX.md through Shelf.rebuild_index(), and agents read
+    # INDEX.md first: docshelf's lines told them to call add_document and
+    # rebuild_index, tools memshelf does not have (memshelf-mcp#197).
+    shelf = Shelf(tmp_path / "s", hints=HOST_HINTS).init(name="S")
+    index = shelf.root / "INDEX.md"
+    assert HOST_HINTS.empty in index.read_text(encoding="utf-8")
+
+    big_md = tmp_path / "big.md"
+    chapter_body = "Lorem ipsum dolor sit amet. " * 500
+    big_md.write_text(
+        "# Title\n\n" + "\n\n".join(f"## Section {i}\n\n{chapter_body}" for i in range(5)),
+        encoding="utf-8",
+    )
+    shelf.add_document(big_md, category="big", title="Big Document", split=True)
+    shelf.add_document(FIXTURE, category="guides", title="Setup", split=False)
+
+    subindexes = sorted(shelf.root.glob("docs/*/*/SUBINDEX.md"))
+    assert len(subindexes) == 1
+    for path in [index, *subindexes]:
+        text = path.read_text(encoding="utf-8")
+        assert "add_document" not in text, path.name
+        assert "rebuild_index" not in text, path.name
+    rendered = index.read_text(encoding="utf-8")
+    assert rendered.endswith(f"---\n\n{HOST_HINTS.index_footer}\n")
+    sub_text = subindexes[0].read_text(encoding="utf-8")
+    assert sub_text.endswith(f"---\n\n{HOST_HINTS.subindex_footer}\n")
+
+    # doctor's stale-index compares INDEX.md with its own render: rendered
+    # without the hints, every host shelf would be "out of date", and
+    # doctor(fix=True) would write docshelf's wording back.
+    assert "stale-index" not in {f.rule for f in shelf.doctor()}
+    shelf.doctor(fix=True)
+    assert index.read_text(encoding="utf-8") == rendered
+
+    # Another instance without hints is docshelf's own view of the same shelf.
+    assert "stale-index" in {f.rule for f in Shelf(shelf.root).doctor()}
 
 
 def test_add_document_rebuilds_index_exactly_once(tmp_path: Path, monkeypatch):
