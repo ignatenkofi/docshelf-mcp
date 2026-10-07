@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   accepts the two known synthetic matches by fingerprint — the maintainer
   e-mail in `pyproject.toml` and the git `user.email` a test configures;
   any other finding fails the smoke job. pii-mcp is a private repository,
-  so the step needs the `PII_MCP_TOKEN` secret to install it; a run without
+  so the step needs the `PII_MCP_READ_TOKEN` secret to install it; a run without
   the secret (fork PRs, or before the secret exists) skips the step with a
   visible warning instead of pretending it passed.
 
