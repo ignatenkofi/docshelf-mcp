@@ -13,7 +13,7 @@ startCommand:
       docshelfRoot:
         type: string
         title: "Docshelf root directory"
-        description: "Absolute path to your docshelf collection (directory containing DOCS/ and INDEX.md). Defaults to the current working directory."
+        description: "Absolute path to your docshelf collection (directory containing docs/ and INDEX.md). Defaults to the current working directory."
         default: "."
   commandFunction: |-
     (config) => ({

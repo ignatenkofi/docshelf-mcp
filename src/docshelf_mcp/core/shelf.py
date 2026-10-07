@@ -45,11 +45,13 @@ from docshelf_mcp.core.converter import (
 from docshelf_mcp.core.fsutil import atomic_write_text
 from docshelf_mcp.core.gitstate import uncommitted_split_dirs
 from docshelf_mcp.core.indexer import (
+    DEFAULT_HINTS,
     DEFAULT_PREAMBLE,
     DEFAULT_SUBINDEX_THRESHOLD,
     SUBINDEX_FILENAME,
     URL_PROVIDERS,
     DocumentEntry,
+    IndexHints,
     _title_from_filename,
     build_index,
     scan_shelf,
@@ -62,6 +64,7 @@ from docshelf_mcp.core.splitter import (
     SplitDirConflictError,
     _expected_split_names,
     clean_markdown,
+    inspect_split_dir,
     is_empty_conversion,
     is_split_dir,
     lint_sections,
@@ -274,6 +277,38 @@ def _manifest_extra_dirs(manifest: dict | None) -> set[str]:
     return {Path(d).as_posix() for d in declared if isinstance(d, str) and d}
 
 
+def _split_path_entries(category_dir: Path, md_files: Iterable[Path]) -> dict[Path, Path]:
+    """The entry of ``category_dir`` each document's split path names, as spelt on disk.
+
+    ``category_dir / md.stem`` is the path add_document writes and the index
+    reads. On a case-insensitive filesystem it also names ``Images/`` next to
+    ``images.md``; matching ``lstat`` (device, inode) finds that entry, and on
+    a case-sensitive one only the exact name. A split path that names nothing,
+    or cannot be looked at, is left out.
+    """
+    by_id: dict[tuple[int, int], Path] = {}
+    try:
+        entries = list(category_dir.iterdir())
+    except OSError:
+        return {}
+    for entry in entries:
+        try:
+            st = entry.lstat()
+        except OSError:
+            continue
+        by_id[(st.st_dev, st.st_ino)] = entry
+    found: dict[Path, Path] = {}
+    for md in md_files:
+        try:
+            st = (category_dir / md.stem).lstat()
+        except OSError:
+            continue
+        entry = by_id.get((st.st_dev, st.st_ino))
+        if entry is not None:
+            found[md] = entry
+    return found
+
+
 def _manifest_config_conflicts(manifest: dict, config: ShelfConfig) -> list[str]:
     """Overlapping-field disagreements between ``shelf.yml`` and ``.docshelf.json``.
 
@@ -386,10 +421,22 @@ class Shelf:
     ...     remote="https://github.com/me/my-docs")
     >>> shelf.add_document("manual.pdf", category="laptops", title="ThinkPad X1")
     >>> shelf.rebuild_index()
+
+    ``hints`` rewords the lines INDEX.md and SUBINDEX.md add around the
+    entries, which name docshelf's tools (see :class:`IndexHints`). It belongs
+    to the instance, not to one call: every render uses it, and so does
+    :meth:`doctor`, whose ``stale-index`` compares INDEX.md with a fresh render
+    — a host's own wording must not read as an out-of-date index, and
+    ``doctor(fix=True)`` must not put docshelf's wording back.
     """
 
-    def __init__(self, root: Path | str) -> None:
+    #: Class-level default, so a subclass whose own ``__init__`` does not call
+    #: ``super().__init__`` still renders docshelf's wording.
+    hints: IndexHints = DEFAULT_HINTS
+
+    def __init__(self, root: Path | str, *, hints: IndexHints = DEFAULT_HINTS) -> None:
         self.root = Path(root).expanduser().resolve()
+        self.hints = hints
         self._config: ShelfConfig | None = None
 
     # ------------------------------------------------------------------ config
@@ -541,9 +588,9 @@ class Shelf:
             DocumentExistsError: The target slug is occupied by a different
                 document and ``overwrite`` is False.
             SplitDirConflictError: ``docs/<category>/<stem>/`` exists and is not
-                a docshelf split directory (:func:`is_split_dir`), so writing
-                or wiping the document's sections would delete it. Raised
-                whatever ``overwrite`` says.
+                a docshelf split directory (:func:`inspect_split_dir` names
+                why), so writing or wiping the document's sections would
+                delete it. Raised whatever ``overwrite`` says.
         """
         source = Path(source).expanduser().resolve()
         if not source.exists():
@@ -597,14 +644,13 @@ class Shelf:
         # before conversion and before doc_path is written, so a refusal
         # leaves nothing half-added.
         split_dir = category_dir / doc_stem
-        if split_dir.exists() and not is_split_dir(split_dir):
+        problem = inspect_split_dir(split_dir)[1]
+        if problem is not None:
             raise SplitDirConflictError(
-                f"{split_dir.relative_to(self.root).as_posix()} exists and is not "
-                "a docshelf split directory (it holds something other than "
-                "NNN-*.md sections and SUBINDEX.md, or cannot be read); adding "
-                f"title {title!r} would delete it with the document's sections. "
-                "Choose a distinct title/slug, or move the directory aside — "
-                "overwrite=True does not apply to it."
+                f"{split_dir.relative_to(self.root).as_posix()} is not a docshelf "
+                f"split directory: it {problem}. Adding title {title!r} would "
+                "delete it with the document's sections. Choose a distinct "
+                "title/slug, or move it aside — overwrite=True does not apply to it."
             )
 
         raw_md = source_to_markdown(source, quality=quality)
@@ -1103,6 +1149,7 @@ class Shelf:
             subindex_threshold=cfg.subindex_threshold_sections,
             provider=cfg.provider,
             url_template=cfg.url_template,
+            hints=self.hints,
         )
 
     def rebuild_index(self) -> Path:
@@ -1117,6 +1164,7 @@ class Shelf:
             branch=cfg.branch,
             provider=cfg.provider,
             url_template=cfg.url_template,
+            hints=self.hints,
         )
         index_path = self.root / "INDEX.md"
         atomic_write_text(index_path, self._index_text(entries))
@@ -1152,7 +1200,8 @@ class Shelf:
 
         Detects: stale ``.meta.json`` entries, orphaned split directories,
         split sections out of sync with their parent document, split sections
-        git does not track, a stale ``INDEX.md``, duplicate titles within a
+        git does not track, something other than a split at a document's
+        split path, a stale ``INDEX.md``, duplicate titles within a
         category, and empty categories. With ``fix=True`` the *safe* subset is
         applied — prune stale meta entries, delete orphaned split dirs, and
         rebuild the index — and those findings are marked ``fixed``.
@@ -1163,10 +1212,13 @@ class Shelf:
         (:func:`is_split_dir` — ``NNN-*.md`` sections and ``SUBINDEX.md``, no
         subdirectories). Any other directory without a parent document — an
         ``images/`` folder, a sidecar of originals — is still reported as
-        ``orphaned-split-dir`` but left in place, ``fixed=False``. Directories
-        declared in ``shelf.yml`` ``extra_dirs`` are neither categories nor
-        orphans here — never reported as such, never deleted — as in the
-        shelf-spec validator (SPEC §2, §9.1).
+        ``orphaned-split-dir`` but left in place, ``fixed=False``. One that
+        does have a parent document is ``split-dir-conflict`` — re-adding the
+        document refuses, so it is reported whatever ``shelf.yml`` declares —
+        and is never deleted; only its ``NNN-*.md`` sections are read.
+        Directories declared in ``shelf.yml`` ``extra_dirs`` are neither
+        categories nor orphans here — never reported as such, never deleted —
+        as in the shelf-spec validator (SPEC §2, §9.1).
 
         Uncommitted split directories suppress both the ``stale-index`` finding
         and the rebuild (#97): while they are there the index on disk and a
@@ -1285,9 +1337,14 @@ class Shelf:
 
             # orphaned-split-dir: a subdir with no parent <stem>.md. The rule
             # name stays for spec parity (and memshelf re-emits it), but only
-            # a split-shaped directory is ours to delete under fix=True.
+            # a split-shaped directory is ours to delete under fix=True. A
+            # directory some document's split path names is not an orphan even
+            # when its name differs: on a case-insensitive filesystem Images/
+            # is images.md's split path, reported once, below.
+            split_entries = _split_path_entries(category_dir, md_files)
+            claimed = set(split_entries.values())
             for sub in sorted(p for p in category_dir.iterdir() if p.is_dir()):
-                if sub.stem in stems or rel(sub) in extra_dirs:
+                if sub.stem in stems or sub in claimed or rel(sub) in extra_dirs:
                     continue
                 if is_split_dir(sub):
                     f = DoctorFinding(
@@ -1307,29 +1364,26 @@ class Shelf:
                         "warning",
                         rel(sub),
                         "directory has no parent document and is not a docshelf "
-                        "split directory (it holds something other than NNN-*.md "
-                        "sections and SUBINDEX.md, or cannot be read) — fix=True "
-                        "leaves it in place",
+                        f"split directory: it {inspect_split_dir(sub)[1] or 'cannot be read'}"
+                        " — fix=True leaves it in place",
                         "move it out of docs/, or declare it in shelf.yml "
                         "extra_dirs — doctor only deletes directories docshelf wrote",
                     )
                 findings.append(f)
 
-            # split-out-of-sync: on-disk sections differ from a fresh split.
-            # A same-stem directory that is not split-shaped is not this
-            # document's sections, so there is nothing to compare.
+            # split-out-of-sync: the sections the index lists differ from a
+            # fresh split. A same-stem directory with no NNN-*.md sections is
+            # not this document's split, so there is nothing to compare.
             for md in md_files:
-                split_dir = category_dir / md.stem
-                if not is_split_dir(split_dir):
+                sections = inspect_split_dir(category_dir / md.stem)[0]
+                if not sections:
                     continue
                 try:
                     text = md.read_text(encoding="utf-8", errors="replace")
                 except OSError:
                     continue
                 expected = _expected_split_names(split_by_h2(text))
-                actual = sorted(
-                    p.name for p in split_dir.glob("*.md") if p.name != SUBINDEX_FILENAME
-                )
+                actual = [p.name for p in sections]
                 if expected != actual:
                     findings.append(
                         DoctorFinding(
@@ -1340,6 +1394,36 @@ class Shelf:
                             "re-add the document to regenerate its sections",
                         )
                     )
+
+            # split-dir-conflict (#118): the path a document's sections live at
+            # holds something docshelf did not write — an images/ folder next
+            # to images.md, a figure dropped into a split, a symlink, a plain
+            # file. Re-adding the document refuses with SplitDirConflictError
+            # whatever `overwrite` says: inspect_split_dir(...)[1] is the
+            # pre-flight's test, so the refusal is announced here first, and
+            # extra_dirs does not lift it. Named as spelt on disk. Never
+            # deleted, not even by fix=True.
+            for md in md_files:
+                split_dir = category_dir / md.stem
+                sections, problem = inspect_split_dir(split_dir)
+                if problem is None:
+                    continue
+                read = (
+                    f"only its NNN-*.md files are read as the sections of {md.name}"
+                    if sections
+                    else f"it is not read as the sections of {md.name}"
+                )
+                findings.append(
+                    DoctorFinding(
+                        "split-dir-conflict",
+                        "warning",
+                        rel(split_entries.get(md, split_dir)),
+                        f"not a docshelf split directory: it {problem}; {read}, and "
+                        "re-adding that document refuses whatever overwrite says",
+                        "move it aside (for a split, just the files docshelf did not "
+                        "write) — doctor never deletes it",
+                    )
+                )
 
         # duplicate-title within a category (from the resolved entries).
         by_cat_title: dict[tuple[str, str], list[str]] = {}
@@ -1366,8 +1450,9 @@ class Shelf:
         # ambiguously under the slug-based category filter (#31), yet the
         # per-category checks above key on each literal dir name and never see
         # it (#49). Group by slug and flag any slug backed by more than one dir.
+        # A declared sidecar is not a category (#118), so it collides with none.
         by_slug: dict[str, list[str]] = {}
-        for category_dir in sorted(p for p in docs_root.iterdir() if p.is_dir()):
+        for category_dir in category_dirs:
             by_slug.setdefault(slugify(category_dir.name, max_len=80), []).append(category_dir.name)
         for slug, names in sorted(by_slug.items()):
             if len(names) > 1:
@@ -1529,8 +1614,10 @@ class Shelf:
                 continue
             # Skip a split document's whole-file parent — its content is fully
             # covered by the section files, which are the better fetch targets.
+            # A same-stem folder of someone else's .md files covers none of it
+            # (#118): only NNN-*.md sections count, the ones the index lists.
             split_dir = md_file.parent / md_file.stem
-            if split_dir.is_dir() and any(split_dir.glob("*.md")):
+            if inspect_split_dir(split_dir)[0]:
                 continue
             cached = self._cached_corpus(md_file)
             if cached is None:
