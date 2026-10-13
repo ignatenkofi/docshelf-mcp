@@ -15,5 +15,15 @@ jobs:
     # конвейер двигался только руками, то есть никак. Повтор закрыт правилом
     # ignore в dependabot.yml: миноры и патчи этого workflow не предлагаются.
     uses: ignatenkofi/devsecops-pipeline-public/.github/workflows/pipeline-light.yml@v1
+    # SCA-стадия конвейера (osv-scanner) в этом репо не сканирует ничего — по
+    # построению, а не по сбою: она ищет лок-файлы, а `uv.lock` не коммитится
+    # (.gitignore), других нет. osv-scanner отвечает «No package sources
+    # found», стадия печатает «лок-файлы не найдены — стадия пропущена», и
+    # итоговая строка гейта среди непроверенного её не называет (#119).
+    # Уязвимые зависимости этого репо проверяет джоба `dependency-audit` в
+    # ci.yml: pip-audit по резолву всех extras из pyproject.toml и гейт
+    # .github/scripts/pip_audit_gate.py — он называет число проверенных
+    # пакетов и падает на нуле; принятые адвизори — в
+    # .github/pip-audit-ignore.txt.
     with:
       repo-class: library

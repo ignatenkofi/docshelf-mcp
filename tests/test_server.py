@@ -7,6 +7,7 @@ wrappers in `docshelf_mcp.tools` are end-to-end callable.
 
 import json
 import os
+import re
 from pathlib import Path
 
 import pytest
@@ -36,6 +37,24 @@ async def test_server_exposes_all_tools():
             "docshelf_search",
         ]
     )
+
+
+@pytest.mark.asyncio
+async def test_usage_has_a_section_per_tool_and_names_every_provider():
+    # docs/USAGE.md is "a tour of every tool", yet docshelf_rename_document had
+    # no section and init's provider was undocumented (#120). A tool count
+    # written into the docs goes stale without a sound, so the roster comes
+    # from the server and the providers from the code.
+    from docshelf_mcp.core.indexer import URL_PROVIDERS
+
+    usage = (Path(__file__).resolve().parent.parent / "docs" / "USAGE.md").read_text(
+        encoding="utf-8"
+    )
+    sections = set(re.findall(r"^### `(docshelf_\w+)`$", usage, re.MULTILINE))
+    assert sections == {tool.name for tool in await mcp.list_tools()}
+
+    init_section = usage.split("### `docshelf_init_shelf`", 1)[1].split("\n### ", 1)[0]
+    assert [p for p in URL_PROVIDERS if f"`{p}`" not in init_section] == []
 
 
 def test_init_shelf_wrapper(tmp_path: Path):

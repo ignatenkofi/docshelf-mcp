@@ -1,5 +1,6 @@
 """Tests for clean_markdown / split_by_h2 / write_split_files."""
 
+import os
 from pathlib import Path
 
 import pytest
@@ -7,6 +8,7 @@ import pytest
 from docshelf_mcp.core.splitter import (
     SplitDirConflictError,
     clean_markdown,
+    inspect_split_dir,
     is_split_dir,
     lint_sections,
     should_split,
@@ -178,8 +180,9 @@ def test_is_split_dir_false_for_an_unreadable_directory(
     # A directory the process may not read proves nothing is docshelf's: it is
     # someone else's, not an OSError out of doctor(fix=False). Both ways the OS
     # refuses: no read bit (the listing fails) and no search bit (the listing
-    # works, but stat of an entry fails — Path.is_dir re-raises EACCES). chmod
-    # does neither as root or on Windows, so the refusal is simulated.
+    # works, but stat of an entry fails — lstat raises EACCES on every Python,
+    # Path.is_dir only up to 3.13). chmod does neither as root or on Windows,
+    # so the refusal is simulated here; the next test asks the OS itself.
     target = tmp_path / "doc"
     write_split_files(split_by_h2(SAMPLE), target)
     assert is_split_dir(target)
@@ -194,16 +197,135 @@ def test_is_split_dir_false_for_an_unreadable_directory(
 
         monkeypatch.setattr(Path, "iterdir", iterdir)
     else:
-        real_is_dir = Path.is_dir
+        real_lstat = Path.lstat
 
-        def is_dir(self: Path, *args, **kwargs):
+        def lstat(self: Path):
             if self.parent == target:
                 raise denial
-            return real_is_dir(self, *args, **kwargs)
+            return real_lstat(self)
 
-        monkeypatch.setattr(Path, "is_dir", is_dir)
+        monkeypatch.setattr(Path, "lstat", lstat)
 
     assert is_split_dir(target) is False
+
+
+@pytest.mark.skipif(
+    os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0),
+    reason="chmod refuses nothing to root, and Windows has no search bit",
+)
+@pytest.mark.parametrize(
+    ("denied", "mode"), [("listing", 0o300), ("stat", 0o600)], ids=["listing", "stat"]
+)
+def test_is_split_dir_false_when_the_os_really_refuses(tmp_path: Path, denied: str, mode: int):
+    # The simulation above pins the mechanism; this asks the OS, on whichever
+    # Python runs it. Without a search bit Path.is_dir raises EACCES up to 3.13
+    # but answers False from 3.14 — where a faked raise stayed green while a
+    # real denied split read as docshelf's own (#121).
+    target = tmp_path / "doc"
+    write_split_files(split_by_h2(SAMPLE), target)
+    section = next(target.iterdir())
+    target.chmod(mode)
+    try:
+        try:
+            if denied == "listing":
+                os.listdir(target)
+            else:
+                os.lstat(section)
+        except PermissionError:
+            pass
+        else:
+            pytest.skip(f"chmod {mode:o} did not refuse the {denied} on this filesystem")
+        assert is_split_dir(target) is False
+    finally:
+        target.chmod(0o755)
+
+
+def test_inspect_split_dir_reads_sections_past_files_docshelf_did_not_write(tmp_path: Path):
+    # The index reads the NNN-*.md sections whatever else the directory holds:
+    # a figure dropped into a split hid every section of it (#118 review).
+    # The directory is still not docshelf's to rewrite, and the problem names
+    # what is in the way.
+    target = tmp_path / "doc"
+    sections = write_split_files(split_by_h2(SAMPLE), target)
+    (target / "figure.png").write_bytes(b"\x89PNG")
+
+    found, problem = inspect_split_dir(target)
+
+    assert found == sorted(sections)
+    assert problem == "holds figure.png, which docshelf did not write"
+    assert not is_split_dir(target)
+    for name in ("a.txt", "b.txt", "c.txt"):
+        (target / name).write_text("x\n", encoding="utf-8")
+    assert inspect_split_dir(target)[1] == (
+        "holds a.txt, b.txt, c.txt and 1 more, which docshelf did not write"
+    )
+
+
+def test_inspect_split_dir_without_a_problem(tmp_path: Path):
+    # What docshelf wrote, and a path that does not exist: nothing in the way.
+    target = tmp_path / "doc"
+    sections = write_split_files(split_by_h2(SAMPLE), target)
+    (target / "SUBINDEX.md").write_text("# nav\n", encoding="utf-8")
+    (target / ".DS_Store").write_bytes(b"\0")
+
+    assert inspect_split_dir(target) == (sorted(sections), None)
+    assert inspect_split_dir(tmp_path / "absent") == ([], None)
+    a_file = tmp_path / "file"
+    a_file.write_text("x\n", encoding="utf-8")
+    assert inspect_split_dir(a_file) == ([], "is not a directory")
+
+
+@pytest.mark.parametrize("linked", ["the-directory", "a-section", "a-foreign-file"])
+def test_inspect_split_dir_reads_nothing_through_a_symlink(tmp_path: Path, linked: str):
+    # docshelf never writes a symlink, and rmtree refuses one: a symlinked
+    # split, or a split holding one, is not a split — no sections, and the
+    # problem says "symlink" (#118 review).
+    real = tmp_path / "real"
+    write_split_files(split_by_h2(SAMPLE), real)
+    outside = tmp_path / "outside.md"
+    outside.write_text("## Elsewhere\n", encoding="utf-8")
+    try:
+        if linked == "the-directory":
+            target = tmp_path / "doc"
+            target.symlink_to(real, target_is_directory=True)
+        else:
+            target = real
+            name = "999-linked.md" if linked == "a-section" else "notes.md"
+            (target / name).symlink_to(outside)
+    except OSError:
+        pytest.skip("symlinks are not available on this filesystem/account")
+
+    found, problem = inspect_split_dir(target)
+
+    assert found == []
+    assert problem is not None and "symlink" in problem
+    assert not is_split_dir(target)
+
+
+@pytest.mark.skipif(
+    os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0),
+    reason="chmod refuses nothing to root, and Windows has no search bit",
+)
+def test_a_symlink_to_a_denied_target_is_not_a_split_on_any_python(tmp_path: Path):
+    # A section entry linking into a directory without a search bit: is_dir()
+    # through the link raises EACCES up to 3.13 and answers False from 3.14,
+    # so the verdict differed by Python. lstat of the entry does not follow
+    # the link: the same "not a split" on every version.
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    (locked / "real.md").write_text("## x\n", encoding="utf-8")
+    target = tmp_path / "doc"
+    write_split_files(split_by_h2(SAMPLE), target)
+    try:
+        (target / "009-link.md").symlink_to(locked / "real.md")
+    except OSError:
+        pytest.skip("symlinks are not available on this filesystem/account")
+    locked.chmod(0o600)
+    try:
+        assert inspect_split_dir(target) == ([], "holds a symlink (009-link.md)")
+        assert is_split_dir(target) is False
+    finally:
+        locked.chmod(0o755)
 
 
 def test_write_split_files_refuses_a_foreign_directory(tmp_path: Path):

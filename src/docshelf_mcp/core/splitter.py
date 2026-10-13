@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import re
 import shutil
+import stat
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -36,6 +37,7 @@ __all__ = [
     "split_by_h2",
     "write_split_files",
     "is_split_dir",
+    "inspect_split_dir",
     "SplitDirConflictError",
     "should_split",
     "lint_sections",
@@ -244,31 +246,64 @@ class SplitDirConflictError(FileExistsError):
     """
 
 
+def inspect_split_dir(path: Path) -> tuple[list[Path], str | None]:
+    """Look at ``path`` as a document's split directory: ``(sections, problem)``.
+
+    ``sections`` are the regular ``NNN-*.md`` files in it, sorted by name —
+    what the index lists, whatever else the directory holds. ``problem`` says
+    why the directory is not docshelf's to rewrite, and is None for one
+    :func:`write_split_files` could have written (sections, ``SUBINDEX.md``
+    and OS litter, nothing else; an empty one counts) and for a path that does
+    not exist. A symlink — the directory itself or any entry — and a directory
+    that cannot be read have no sections at all. Never raises: every entry is
+    ``lstat``-ed, which refuses on every Python, where ``Path.is_dir`` answers
+    EACCES with False from 3.14 (#121).
+    """
+    try:
+        mode = path.lstat().st_mode
+    except FileNotFoundError:
+        return [], None
+    except OSError:
+        return [], "cannot be read"
+    if stat.S_ISLNK(mode):
+        return [], "is a symlink"
+    if not stat.S_ISDIR(mode):
+        return [], "is not a directory"
+    sections: list[Path] = []
+    foreign: list[str] = []
+    try:
+        for child in sorted(path.iterdir(), key=lambda p: p.name):
+            child_mode = child.lstat().st_mode
+            if stat.S_ISLNK(child_mode):
+                return [], f"holds a symlink ({child.name})"
+            if stat.S_ISREG(child_mode) and _SECTION_FILE_RE.match(child.name):
+                sections.append(child)
+            elif not (stat.S_ISREG(child_mode) and child.name in _SPLIT_DIR_EXTRAS):
+                foreign.append(child.name)
+    except OSError:
+        return [], "cannot be read"
+    if not foreign:
+        return sections, None
+    more = f" and {len(foreign) - 3} more" if len(foreign) > 3 else ""
+    return sections, f"holds {', '.join(foreign[:3])}{more}, which docshelf did not write"
+
+
 def is_split_dir(path: Path) -> bool:
     """Whether ``path`` is a directory :func:`write_split_files` could have written.
 
-    True only for a real (non-symlink) directory with no subdirectories whose
-    files are all ``NNN-*.md`` sections, plus optionally ``SUBINDEX.md`` and OS
-    litter (``.DS_Store`` and the like). An empty directory counts. This is
-    the line docshelf may delete up to: anything else is someone else's.
-
-    A directory that cannot be read is someone else's too: False, never an
-    :class:`OSError`. The callers include the read-only ``doctor()``, which
-    reports such a directory and must not raise on it.
+    True only for a real (non-symlink) directory with no subdirectories or
+    symlinks whose files are all ``NNN-*.md`` sections, plus optionally
+    ``SUBINDEX.md`` and OS litter (``.DS_Store`` and the like). An empty
+    directory counts. This is the line docshelf may delete up to: anything
+    else is someone else's — including a directory that cannot be read, which
+    gives False, never an :class:`OSError` (``doctor()`` calls this).
     """
     try:
-        if path.is_symlink() or not path.is_dir():
+        if not stat.S_ISDIR(path.lstat().st_mode):
             return False
-        # No read bit: the listing fails. No search bit: the listing works, but
-        # stat of an entry fails, and Path.is_dir can re-raise EACCES.
-        for child in path.iterdir():
-            if child.is_dir():
-                return False
-            if child.name not in _SPLIT_DIR_EXTRAS and not _SECTION_FILE_RE.match(child.name):
-                return False
     except OSError:
         return False
-    return True
+    return inspect_split_dir(path)[1] is None
 
 
 def write_split_files(
