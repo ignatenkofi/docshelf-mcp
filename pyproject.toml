@@ -74,7 +74,7 @@ dependencies = [
 # rest of these bounds exist to prevent. Each minor bump arrives as a
 # dependabot PR, and the PDF conversion test is what judges it.
 pdf = [
-    "pymupdf4llm>=1.0,<1.29",
+    "pymupdf4llm>=1.0,<2.1",
 ]
 # Ceiling at 2, restored. 0.4.0 introduced `<2` to keep the released but
 # untested 2.x major out; dependabot #92 widened it to `<3` and merged green,
@@ -96,7 +96,7 @@ epub = [
     "markdownify>=0.11,<2",
 ]
 formats = [
-    "pymupdf4llm>=1.0,<1.29",
+    "pymupdf4llm>=1.0,<2.1",
     "mammoth>=1.6,<2",
     "markdownify>=0.11,<2",
     "ebooklib>=0.18,<1",
@@ -110,7 +110,7 @@ dev = [
     # conversion tests run in CI. pymupdf4llm must stay here: the PDF tests
     # importorskip it, so leaving it out would not fail CI — it would turn
     # the package's headline test into a green skip (#93).
-    "pymupdf4llm>=1.0,<1.29",
+    "pymupdf4llm>=1.0,<2.1",
     "mammoth>=1.6,<2",
     "markdownify>=0.11,<2",
     "ebooklib>=0.18,<1",
